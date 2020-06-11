@@ -1,0 +1,8 @@
+name = "iTEBD"
+uuid = "3e658c4a-00a9-4be6-9955-e21302391b0e"
+authors = ["ren "]
+version = "0.1.0"
+
+[deps]
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+TensorOperations = "6aa20fa7-93e2-5fca-9bc0-fbd0db3c71a2"
