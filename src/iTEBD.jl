@@ -1,7 +1,7 @@
 module iTEBD
 using LinearAlgebra
 using TensorOperations
-export canonical, applygate, tebd, run
+export canonical, applygate, tebd, run!
 const BOUND = 50
 const THRESHOLD = 1e-7
 #--- Basic types
@@ -20,14 +20,14 @@ SchmidtVals(V::Vector) = Diagonal(V)
 CMPS(T::Tensor, λ::Vector) = CMPS(T, SchmidtVals(λ))
 IMPS(T1,T2,λ1,λ2) = IMPS(CMPS(T1,λ1),CMPS(T2,λ2))
 function getdata(mps::IMPS)
-    T1, T2 = mps.A, MPS.B
+    T1, T2 = mps.A, mps.B
     A, λ1 = T1.tensor, T1.schmidtvals
     B, λ2 = T2.tensor, T2.schmidtvals
     return A,B,λ1,λ2
 end
 #--- tensor SVD with truncation
-function svd(
-    tensor::Array{T,4} where T;
+function tsvd(
+    tensor;
     bound::Int64=BOUND,
     threshold::Float64=THRESHOLD)
 
@@ -55,11 +55,11 @@ function applygate(
     i3,i4 = size(B)[2:3]
     block = Array{promote_type(eltype(A),eltype(G))}(undef,i1,i2,i3,i4)
     @tensor block[α,β,γ,τ] = λ2[α,1]*A[1,2,3]*λ1[3,4]*B[4,5,6]*λ2[6,τ]*G[β,γ,2,5]
-    U,λ1p,V = svd(block, bound, threshold)
+    U,λ1p,V = tsvd(block, bound=bound, threshold=threshold)
     len = length(λ1p)
+    λ2i = inv(λ2)
     Ap = Array{promote_type(eltype(U),eltype(λ2i))}(undef,i1,i2,len)
     Bp = Array{promote_type(eltype(V),eltype(λ2i))}(undef,len,i3,i4)
-    λ2i = inv(λ2)
     @tensor Ap[i,j,k] = λ2i[i,1]*U[1,j,k]
     @tensor Bp[i,j,k] = V[i,j,1]*λ2i[1,k]
     Ap, Bp, Diagonal(λ1p), λ2
@@ -101,11 +101,12 @@ function matsqrt(matrix)
 end
 function tensorsplit(tensor, χ::Int64, d::Int64)
     tensor = reshape(tensor, χ,:,χ)
-    tensor2, λ2 = canonical(tensor)
-    tensor3 = Array{eltype(A)}(undef, size(tensor2))
+    cmps = canonical(tensor)
+    tensor2, λ2 = cmps.tensor, cmps.schmidtvals
+    tensor3 = Array{eltype(tensor)}(undef, size(tensor2))
     @tensor tensor3[i,k,m] = λ2[i,j] * tensor2[j,k,l] * λ2[l,m]
     tensor3 = reshape(tensor3, χ,d,d,χ)
-    U,λ1,V = svd(tensor3,bound=0,threshold=0.0)
+    U,λ1,V = tsvd(tensor3, bound=0, threshold=0.0)
     invλ2 = inv(λ2)
     C = Array{eltype(U)}(undef,size(U))
     D = Array{eltype(V)}(undef,size(V))
@@ -146,9 +147,9 @@ function canonical(mps::IMPS)
     tensorsplit(tensor, χ, d)
 end
 #--- TEBD
-mutable struct TEBD{T1,T2,T3}
-    mps::IMPS{T1,T2}
-    gate::Array{T3,4}
+mutable struct TEBD
+    mps::IMPS
+    gate::Array
     dt::Float64
     T::Float64
 end
@@ -164,5 +165,4 @@ function run!(tebd::TEBD)
     tebd.mps = applygate(tebd.gate,tebd.mps)
     tebd.T += tebd.dt
 end
-
 end # module
