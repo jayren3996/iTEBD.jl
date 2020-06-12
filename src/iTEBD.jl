@@ -7,7 +7,7 @@ const THRESHOLD = 1e-7
 #--- Basic types
 const Tensor{T} = Array{T,3}
 const Gate{T} = Array{T,4}
-const SchmidtVals{T} = Diagonal{T,Vector{T}
+const SchmidtVals{T} = Diagonal{T,Vector{T}}
 struct CMPS{T1,T2}
     tensor::Tensor{T1}
     schmidtvals::SchmidtVals{T2}
