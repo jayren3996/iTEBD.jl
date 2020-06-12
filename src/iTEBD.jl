@@ -67,7 +67,7 @@ end
 
 function applygate(
     G::Gate,
-    mps::iMPS;
+    mps::IMPS;
     bound::Int64=BOUND,
     threshold::Float64=THRESHOLD)
 
@@ -138,7 +138,7 @@ function canonical(A::Tensor, B::Tensor)
     tensorsplit(tensor, χ, d)
 end
 
-function canonical(mps::iMPS)
+function canonical(mps::IMPS)
     A,B,λ1,λ2 = getdata(mps)
     χ,d = size(A)[1:2]
     tensor = Array{eltype(A)}(undef, χ,d,d,χ)
@@ -147,13 +147,13 @@ function canonical(mps::iMPS)
 end
 #--- TEBD
 mutable struct TEBD{T1,T2,T3}
-    mps::iMPS{T1,T2}
+    mps::IMPS{T1,T2}
     gate::Array{T3,4}
     dt::Float64
     T::Float64
 end
 
-function tebd(mps::iMPS,H::Matrix,dt)
+function tebd(mps::IMPS,H::Matrix,dt)
     expH = exp(-dt*im * H)
     d = Int(sqrt(size(H,1)))
     gate = reshape(expH,d,d,d,d)
