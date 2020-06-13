@@ -74,8 +74,8 @@ We can now run the simulation by iteratively appling ```run!``` to the system:
 ```julia
 time_steps
 for i=1:1000
-	run!(tebd_system)
-	println("T = ", tebd_system.n * tebd_system.dt)
+    run!(tebd_system)
+    println("T = ", tebd_system.n * tebd_system.dt)
 end
 ```
 
