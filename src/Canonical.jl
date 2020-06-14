@@ -36,10 +36,11 @@ function transfermat(tensor)
 end
 
 function transfermat(T1,T2)
-    χ = size(T1)
+    χ = size(T1, 1)
     cT1 = conj(T1)
     cT2 = conj(T2)
-    trm = Array{promote_type(eltype(T1),eltype(T2))}(undef,χ,χ,χ,χ)
+    CommonType = promote_type(eltype(T1),eltype(T2))
+    trm = Array{CommonType}(undef, χ,χ,χ,χ)
     @tensor trm[:] = T1[-1,2,1] * T2[1,4,-3] * cT1[-2,2,3] * cT2[3,4,-4]
     reshape(trm, χ^2, χ^2)
 end

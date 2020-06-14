@@ -1,7 +1,8 @@
-include("../src/Canonical.jl")
-include("../src/iTEBD.jl")
-using .Canonical: canonical, overlap, applygate
-using .iTEBD
+#include("../src/Canonical.jl")
+#include("../src/iTEBD.jl")
+#using .Canonical: canonical, overlap, applygate
+#using .iTEBD
+using iTEBD
 using LinearAlgebra
 using Test
 #--- Test canonical
