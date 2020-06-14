@@ -21,76 +21,71 @@ pkg> add https://github.com/jayren3996/iTEBD.jl
 The 2-site iMPS object are represented by:
 
 ```julia
-Tuple{Array{T,3},Array{T,3},Diagonal{T,Array{T,1}},Diagonal{T,Array{T,1}}}
+Tuple{Array{T,3},Array{T,3},Array{T,1},T,Array{T,1}}
 ```
 
-i.e. ```imps = (A,B,λ1,λ2)```. We can constructed an iMPS by simply pack two 3-D array and two Diagonal matrix. For example, a random state can be constructed by:
+i.e. ```imps = (A,B,λ1,λ2)```. When brought to canonical form, ```A```, ```B``` are right-canonical, and ```λ1```, ```λ2``` are the Schmidt values between neighboring sites. We can constructed an iMPS by simply pack two 3-D array and two vector. For example, a random state can be constructed by:
 
 ```julia
 dim_num = 50
 random_tensor = rand(dim_num, 3, dim_num)
-mps = (random_tensor, random_tensor, Diagonal(ones(dim_num)), Diagonal(ones(dim_num)))
+mps = (random_tensor, random_tensor, ones(dim_num), ones(dim_num))
 ```
 
 ### Hamiltonian
 
-An Hamiltonian is just an  ```Array{T,2}```. While for ground state searching problems, we will multiply the matrices by an imaginary part ```-1im```. For example, AKLT Hamiltonian (for imaginary time evolution) can be constructed by:
+An Hamiltonian is just an  ```Array{T,2}```. There is also a helper function ```spinop``` for constructing spin Hamiltonian. For example, AKLT Hamiltoniancan be constructed by:
 
 ```julia
-Sx = [0 1 0;1 0 1;0 1 0]/sqrt(2)
-Sy = [0 1im 0;-1im 0 1im;0 -1im 0]/sqrt(2)
-Sz = Diagonal([-1,0,1])
-SS = kron(Sx, Sx) + kron(Sy, Sy) + kron(Sz, Sz)
-H2 = SS + 1/3 * SS^2
-hamiltonian = -1im * H2
+SS = spinop("xx",S=1) + spinop("yy",S=1) + spinop("zz",S=1)
+hamiltonian = SS + 1/3 * SS^2
 ```
 
 ### Setup and run iTEBD
 
-After obtaining iMPS and Hamiltonian matrix, we can then use ```tebd``` function to construct iTEBD system:
+After obtaining iMPS and Hamiltonian matrix, we can then use ```TEBD``` function to construct iTEBD system:
 
 ```julia
-tebd_system = tebd(mps,hamiltonian,bound=50,tol=1e-7,N=100)
+time_steps = 0.1
+tebd_system = TEBD(hamiltonian, time_steps, mode="i", bound=50, tol=1e-7)
 ```
 
-Note that there are 3 optional input the the constructor, where ```bound``` controls the SVD truncation, ```tol``` control the threshold for Schmidt, and ```N``` controls the steps after which to canonicalize the iMPS.
+Note that there are 3 optional input the the constructor, where ```mode ``` determine whether the evolution is in real-time (```mode="r"```) or imaginary time (```mode="i"```). ```bound``` controls the SVD truncation, and ```tol``` control the threshold for Schmidt values.
 
 For reference, the ```TEBD``` object is defined as:
 
 ```julia
-mutable struct TEBD
-    mps     # iMPS state
-    gate    # Quantum gate that generate time revolution
-    dt      # Time steps
-    n       # Number of times
-    N       # Period of canonicalize
-    bound   # Truncation
-    tol     # Schmidt value threshold
+mutable struct TEBD{T}
+    gate::Array{T,4}
+    dt::Float64
+    N::Int64
+    bound::Int64
+    tol::Float64
 end
 ```
 
-We can now run the simulation by iteratively appling ```run!``` to the system:
+We can now apply the ```TEBD``` object to mps to update the system:
 
 ```julia
-time_steps
 for i=1:1000
-    run!(tebd_system)
-    println("T = ", tebd_system.n * tebd_system.dt)
+    mps = tebd_system(mps)
+    println("T = ", tebd_system.N * tebd_system.dt)
 end
 ```
 
-The result is stored in ```tebd_system.mps``` . The procedure for real-time evolution is similar.
+The procedure for real-time evolution is the same, but just set ```mode="r"```.
 
 ### Canonical form
 
-In many cases, it is much simpler to work on the canonical form of MPS. Here, the canonical form is for the Schmidt canonical form, introduced by G. Vidal (G. Vidal, Phys. Rev. B **78**, 155117 􏱋2008􏱌).
+In many cases, it is much simpler to work on the canonical form of MPS. Here, the canonical form is the left-canonical form. However, we keep track of the Schmidt values (singular values) so that it can easily transformed to Schmidt canonical form, introduced by G. Vidal (G. Vidal, Phys. Rev. B **78**, 155117 􏱋2008􏱌). 
 
-There are 3 method for the function ```canonical``` :
+There are 2 method for the function ```canonical``` :
 
 ```julia
 canonical(A::Array{T,3}; check=true)
 canonical(A::Array{T,3},B::Array{T,3}; check=true)
-canonical(A::Array{T,3},B::Array{T,3},λ1::Diagonal{T,Array{T,1}},λ2::Diagonal{T,Array{T,1}}; check=true)
 ```
 
-when ```check=true``` , it will check whether the dominent eigenvalue of the transfer matrix is degenerate. If so, it means the iMPS is in a superposional "cat state", i.e. the boundary can determine the quantum state. What  a checked canonical function does is that it will choose a random boundary state to get rid of of superposition. And if the system is gapped, different choices of boundary should not influence the bulk state. 
+when ```check=true``` , it will check whether the dominent eigenvalue of the transfer matrix is degenerate. If so, it means the iMPS is in a superposional "cat state", i.e. the MPS state can be reduced to smaller dimension by specifying boundary states. 
+
+What  a checked canonical function does is that it will choose a boundary state (default to be equally superpositional state) to reduced the MPS dimension. And if the system is gapped, different choices of boundary should not influence the bulk state. 
