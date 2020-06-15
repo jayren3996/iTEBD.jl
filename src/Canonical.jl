@@ -2,19 +2,33 @@ module Canonical
 #--- Import
 using LinearAlgebra
 using TensorOperations
+#--- CONSTANT
+const BOUND = 50
+const SMALLTOL = 1e-7
+const MEDIUMTOL = 1e-5
+const BIGTOL = 1e-3
 #--- Factorization
-function matsqrt(matrix; tol=1e-5)
+function matsqrt(
+    matrix::Matrix;
+    tol::Float64=MEDIUMTOL)
+
     vals, vecs = eigen(Hermitian(matrix))
-    if all(vals.<tol) vals*=-1 end
+    if all(vals .< tol)
+        vals *= -1
+    end
     pos = vals .> tol
-    # @assert any(pos) "Invalid eigvals:\n $(vals)"
     sqrtvals = Diagonal(sqrt.(vals[pos]))
     X = vecs[:,pos] * sqrtvals
     Xi = sqrtvals * vecs'[pos,:]
     X, Xi
 end
 
-function tensorsplit(tensor; bound=0, tol=1e-7, renormalize::Bool=false)
+function tensorsplit(
+    tensor::Array{T,4} where T <: Number;
+    bound::Int64=0,
+    tol::Float64=BIGTOL,
+    renormalize::Bool=false)
+
     χ,d = size(tensor)[1:2]
     tensor2 = reshape(tensor, χ*d, d*χ)
     U, S, V = svd(tensor2)
@@ -27,34 +41,41 @@ function tensorsplit(tensor; bound=0, tol=1e-7, renormalize::Bool=false)
     U, S, V
 end
 #--- Tranfer matrix-like object
-function transfermat(tensor)
-    χ = size(tensor, 1)
-    conjt = conj(tensor)
-    trm = Array{eltype(tensor)}(undef,χ,χ,χ,χ)
-    @tensor trm[i,j,k,l] = tensor[i,1,k] * conjt[j,1,l]
-    reshape(trm, χ^2, χ^2)
+function transfermat!(T,trm)
+    cT = conj(T)
+    @tensor trm[:] = T[-1,1,-3] * cT[-2,1,-4]
 end
-
-function transfermat(T1,T2)
-    χ = size(T1, 1)
+function transfermat!(T1,T2,trm)
     cT1 = conj(T1)
     cT2 = conj(T2)
-    CommonType = promote_type(eltype(T1),eltype(T2))
-    trm = Array{CommonType}(undef, χ,χ,χ,χ)
     @tensor trm[:] = T1[-1,2,1] * T2[1,4,-3] * cT1[-2,2,3] * cT2[3,4,-4]
+end
+function transfermat!(A1,B1,A2,B2,trm)
+    cA2 = conj(A2)
+    cB2 = conj(B2)
+    @tensor trm[:] = A1[-1,2,1] * B1[1,4,-3] * cA2[-2,2,3] * cB2[3,4,-4]
+end
+commontype(T...) = promote_type(eltype.(T)...)
+function transfermat(T)
+    χ = size(T, 1)
+    trm = Array{commontype(T)}(undef, χ,χ,χ,χ)
+    transfermat!(T, trm)
     reshape(trm, χ^2, χ^2)
 end
-
+function transfermat(T1,T2)
+    χ = size(T1, 1)
+    trm = Array{commontype(T1,T2)}(undef, χ,χ,χ,χ)
+    transfermat!(T1,T2, trm)
+    reshape(trm, χ^2, χ^2)
+end
 function transfermat(A1,B1,A2,B2)
     χ1 = size(A1,1)
     χ2 = size(A2,1)
-    cA2 = conj(A2)
-    cB2 = conj(B2)
-    CommonType = promote_type(eltype(A1),eltype(A2),eltype(B1),eltype(B2))
-    trm = Array{CommonType}(undef,χ1,χ2,χ1,χ2)
-    @tensor trm[:] = A1[-1,2,1] * B1[1,4,-3] * cA2[-2,2,3] * cB2[3,4,-4]
+    trm = Array{commontype(A1,B1,A2,B2)}(undef, χ1,χ2,χ1,χ2)
+    transfermat!(A1,B1,A2,B2, trm)
     reshape(trm, χ1*χ2, χ1*χ2)
 end
+transfermat(mps::Tuple) = transfermat(mps[1],mps[2])
 #--- Dominent eigen vector
 function dominentvec(matrix)
     spec, vecs = eigen(matrix)
@@ -90,7 +111,12 @@ function trim(lvecs, rvecs)
     trim(lvecs, rvecs, lstate, rstate)
 end
 #--- Schmidt form
-function schmidtform(tensor, eigmax, rvec::Vector, lvec::Vector)
+function schmidtform(
+    tensor,
+    eigmax::Float64,
+    rvec::Vector,
+    lvec::Vector)
+
     i1,i2,i3 = size(tensor)
     X, Xi = matsqrt(reshape(rvec,i1,:))
     Y, Yi = transpose.(matsqrt(reshape(lvec,i3,:)))
@@ -102,14 +128,16 @@ function schmidtform(tensor, eigmax, rvec::Vector, lvec::Vector)
     rmat = Yi * U
     j1 = size(lmat,1)
     j2 = size(rmat,2)
-    CommonType = promote_type(eltype(tensor), eltype(lmat), eltype(rmat))
-    canonicalT = Array{CommonType}(undef,j1,i2,j2)
+    canonicalT = Array{commontype(tensor,lmat,rmat)}(undef,j1,i2,j2)
     @tensor canonicalT[:] = lmat[-1,3]*tensor[3,-2,2]*rmat[2,1]*dS[1,-3]
     canonicalT *= normalization/sqrt(eigmax)
     canonicalT, S
 end
 
-function schmidtform(tensor; check::Bool=true)
+function schmidtform(
+    tensor;
+    check::Bool=true)
+
     if check
         eigmax, rvecs, lvecs = dominentvecs(transfermat(tensor))
         rvec, lvec = trim(rvecs,lvecs)
@@ -119,7 +147,13 @@ function schmidtform(tensor; check::Bool=true)
     schmidtform(tensor, eigmax, rvec, lvec)
 end
 #--- canonical form
-function λTλ2TλT(tensor, λ2; bound=0, tol=1e-7, renormalize::Bool=true)
+function λTλ2TλT(
+    tensor,
+    λ2::Vector;
+    bound::Int64=0,
+    tol::Float64=SMALLTOL,
+    renormalize::Bool=true)
+
     j,d2 = size(tensor)[1:2]
     d = Int(sqrt(d2))
     T = reshape(tensor, j,d,d,j)
@@ -142,8 +176,7 @@ end
 
 function canonical(T1, T2; check::Bool=true)
     i,d = size(T1)[1:2]
-    CommonType = promote_type(eltype(T1),eltype(T2))
-    tensor = Array{CommonType}(undef, i,d,d,i)
+    tensor = Array{commontype(T1,T2)}(undef, i,d,d,i)
     @tensor tensor[i,j,k,l] = T1[i,j,1]*T2[1,k,l]
     tensor = reshape(tensor, i,:,i)
     tensor, λ2 = schmidtform(tensor, check=check)
@@ -151,7 +184,14 @@ function canonical(T1, T2; check::Bool=true)
     (A,B,λ1,λ2)
 end
 #--- Apply gates
-function applygate(G,A,B,λ2; bound=50, tol=1e-7)
+function applygate(
+    G::Array{T,4} where T <: Number,
+    A,
+    B,
+    λ2::Vector;
+    bound::Int64=BOUND,
+    tol::Float64=SMALLTOL)
+
     χ, d = size(A)[1:2]
     dλ2 = Diagonal(λ2)
     CommonType = promote_type(eltype(G),eltype(A),eltype(B))

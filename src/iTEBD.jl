@@ -15,7 +15,7 @@ export TEBD
 #--- CONSTANT
 const BOUND = 50
 const TOL = 1e-7
-#--- TEBD
+#--- TEBD type
 mutable struct TEBD{T}
     gate::Array{T,4}
     dt::Float64
@@ -23,10 +23,12 @@ mutable struct TEBD{T}
     bound::Int64
     tol::Float64
 end
-
 function TEBD(
-    H::Matrix, dt::Float64;
-    mode::String="real", bound::Int64=BOUND, tol::Float64=TOL)
+    H::Matrix,
+    dt::Float64;
+    mode::String="real",
+    bound::Int64=BOUND,
+    tol::Float64=TOL)
 
     if mode == "real" || mode == "r"
         expH = exp(-1im * dt * H)
@@ -37,8 +39,8 @@ function TEBD(
     gate = reshape(expH,d,d,d,d)
     TEBD(gate, dt, 0, bound, tol)
 end
-
-function (tebd::TEBD)(mps)
+#--- Run TEBD
+function (tebd::TEBD)(mps::Tuple)
     A,B,λ1,λ2 = mps
     gate = tebd.gate
     bound = tebd.bound
@@ -47,6 +49,13 @@ function (tebd::TEBD)(mps)
     A,λ1,B = applygate(gate,A,B,λ2, bound=bound,tol=tol)
     B,λ2,A = applygate(gate,B,A,λ1, bound=bound,tol=tol)
     tebd.N += 1
+    A,B,λ1,λ2
+end
+function (tebd::TEBD)(mps::Tuple, n::Int64)
+    A,B,λ1,λ2 = mps
+    for i = 1:n
+        A,B,λ1,λ2 = tebd((A,B,λ1,λ2))
+    end
     A,B,λ1,λ2
 end
 

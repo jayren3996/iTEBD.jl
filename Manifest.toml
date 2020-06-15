@@ -42,6 +42,10 @@ version = "0.17.17"
 deps = ["Printf"]
 uuid = "ade2ca70-3891-5945-98fb-dc099432e06a"
 
+[[Distributed]]
+deps = ["Random", "Serialization", "Sockets"]
+uuid = "8ba89e20-285c-5b6f-9357-94700520ee1b"
+
 [[ExprTools]]
 git-tree-sha1 = "6f0517056812fd6aa3af23d4b70d5325a2ae4e95"
 uuid = "e2ba6199-217a-4e67-a87a-7c52f15ade04"
@@ -165,6 +169,10 @@ deps = ["CUDA", "LRUCache", "LinearAlgebra", "Requires", "Strided", "TupleTools"
 git-tree-sha1 = "cb82d88f6b09fd5461f5133aeea732731afb7ac8"
 uuid = "6aa20fa7-93e2-5fca-9bc0-fbd0db3c71a2"
 version = "3.0.0"
+
+[[Test]]
+deps = ["Distributed", "InteractiveUtils", "Logging", "Random"]
+uuid = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
 [[TimerOutputs]]
 deps = ["Printf"]
