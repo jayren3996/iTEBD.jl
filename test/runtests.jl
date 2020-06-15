@@ -1,8 +1,7 @@
-#include("../src/Canonical.jl")
-#include("../src/iTEBD.jl")
-#using .Canonical: canonical, overlap, applygate
-#using .iTEBD
-using iTEBD, Test
+include("../src/iTEBD.jl")
+using .iTEBD
+#using iTEBD
+using Test
 #--- Test canonical
 @testset "CanonicalForm" begin
     aklt = zeros(2,3,2)
@@ -22,7 +21,7 @@ using iTEBD, Test
     model[4,3,3] = -sqrt(2/3)
 
     res = canonical(model,model)
-    ov = overlap(res[1],res[2],aklt,aklt)
+    ov = inner(res[1],res[2],aklt,aklt)
     @test res[3][1] ≈ res[3][2]
     @test res[4][1] ≈ res[4][2]
     @test ov ≈ 1.0
@@ -49,6 +48,7 @@ end
         lb = rand(rdim)
         (A,B,la,lb)
     end
-    mps = tebd(mps,1000)
-    @test overlap(mps[1],mps[2],aklt,aklt) ≈ 1.0 atol=1e-5
+    # Best: 1.07s
+    @time mps = tebd(mps,1000)
+    @test inner(mps[1],mps[2],aklt,aklt) ≈ 1.0 atol=1e-5
 end

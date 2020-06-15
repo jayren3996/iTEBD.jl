@@ -37,7 +37,7 @@ mps = (random_tensor, random_tensor, ones(dim_num), ones(dim_num))
 An Hamiltonian is just an  ```Array{T,2}```. There is also a helper function ```spinop``` for constructing spin Hamiltonian. For example, AKLT Hamiltoniancan be constructed by:
 
 ```julia
-SS = spinop("xx",S=1) + spinop("yy",S=1) + spinop("zz",S=1)
+SS = spinop("xx",1) + spinop("yy",1) + spinop("zz",1)
 hamiltonian = SS + 1/3 * SS^2
 ```
 
@@ -86,6 +86,4 @@ canonical(A::Array{T,3}; check=true)
 canonical(A::Array{T,3},B::Array{T,3}; check=true)
 ```
 
-when ```check=true``` , it will check whether the dominent eigenvalue of the transfer matrix is degenerate. If so, it means the iMPS is in a superposional "cat state", i.e. the MPS state can be reduced to smaller dimension by specifying boundary states. 
-
-What  a checked canonical function does is that it will choose a boundary state (default to be equally superpositional state) to reduced the MPS dimension. And if the system is gapped, different choices of boundary should not influence the bulk state. 
+The canonical algorithm given by (Vidal, 2008) requires the dominent eigenvalue of the transfer matrix non-degenerate. While in ```check=true``` mode, it will choose a boundary state (default to be equally-superpositional state) to make sure the algorithm works. However, no guarantee that the canonicalized MPS is of the simpleast form (the dimension of MPS may be further reduced). 

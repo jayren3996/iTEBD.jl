@@ -1,7 +1,7 @@
 name = "iTEBD"
 uuid = "3e658c4a-00a9-4be6-9955-e21302391b0e"
 authors = ["jayren3996"]
-version = "1.0.2"
+version = "1.1.0"
 
 [deps]
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"

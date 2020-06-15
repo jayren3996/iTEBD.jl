@@ -2,16 +2,21 @@ module iTEBD
 #--- Import
 using LinearAlgebra
 using TensorOperations
+include("Gate.jl")
 include("Canonical.jl")
 include("SpinOperators.jl")
-using .Canonical: transfermat, dominentvector
-using .Canonical: canonical, applygate, overlap
-using .SpinOperators
+include("TransferMatrix.jl")
+using .Gate: applygate
+using .Canonical: canonical
+using .SpinOperators: spinop
+using .TransferMatrix: trm, gtrm, utrm, normalization, inner, symrep
+using .TransferMatrix: dominent_eigen, dominent_eigen!
+using .TransferMatrix: dominent_eigval, dominent_eigval!
 #--- Export
-export transfermat, dominentvector
-export canonical, applygate, overlap
-export spinop
+export applygate, canonical, spinop
 export TEBD
+export trm, gtrm, utrm, normalization, inner, symrep
+export dominent_eigen, dominent_eigen!, dominent_eigval, dominent_eigval!
 #--- CONSTANT
 const BOUND = 50
 const TOL = 1e-7
@@ -23,16 +28,10 @@ mutable struct TEBD{T}
     bound::Int64
     tol::Float64
 end
-function TEBD(
-    H::Matrix,
-    dt::Float64;
-    mode::String="real",
-    bound::Int64=BOUND,
-    tol::Float64=TOL)
-
-    if mode == "real" || mode == "r"
+function TEBD(H, dt; mode::String="r", bound=BOUND, tol=TOL)
+    if mode == "r" || mode == "real"
         expH = exp(-1im * dt * H)
-    elseif mode == "imag" || mode == "i" || mode == "imaginary"
+    elseif mode == "i" || mode == "imag"
         expH = exp(-dt * H)
     end
     d = Int(sqrt(size(H,1)))
@@ -59,4 +58,4 @@ function (tebd::TEBD)(mps::Tuple, n::Int64)
     A,B,λ1,λ2
 end
 
-end # module
+end # module iTEBD
