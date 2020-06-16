@@ -55,7 +55,7 @@ For reference, the ```TEBD``` object is defined as:
 
 ```julia
 mutable struct TEBD{T}
-		site::Int64
+    site::Int64
     gate::Array{T,2}
     dt::Float64
     N::Int64
