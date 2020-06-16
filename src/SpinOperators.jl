@@ -66,9 +66,11 @@ function spinop(op::String, S=1/2)
     elseif length(op) == 1
         operator = spinmap(op[1], S)
     else
-        s1 = spinmap(op[1], S)
-        s2 = spinmap(op[2], S)
-        operator = kron(s1, s2)
+        n = length(op)
+        operator = spinmap(op[n], S)
+        for i = n-1:-1:1
+            operator = kron(spinmap(op[i], S), operator)
+        end
     end
     Array(operator)
 end

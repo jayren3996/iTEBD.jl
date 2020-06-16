@@ -1,8 +1,3 @@
-module TransferMatrix
-using LinearAlgebra
-using TensorOperations
-#--- Helper functions
-commontype(T...) = promote_type(eltype.(T)...)
 #--- Overwrite functions
 function gtrm!(M, A1, A2)
     cA2 = conj(A2)
@@ -67,11 +62,42 @@ function dominent_eigen!(matrix)
 end
 dominent_eigval(matrix) = maximum(abs.(eigvals(matrix)))
 dominent_eigval!(matrix) = maximum(abs.(eigvals!(matrix)))
+function lrvec(lvecs, rvecs)
+    n = Int(sqrt(size(lvecs,1)))
+    rstate = ones(n)
+    lstate = ones(n)
+    rvec = rvecs * (rvecs' * reshape(rstate*rstate', :))
+    lvec = lvecs * (lvecs' * reshape(lstate*lstate', :))
+    return rvec, lvec
+end
+function dominent_eigvecs!(matrix; check=true, tol=SORTTOL)
+    spec, vecs = eigen!(matrix)
+    absspec = abs.(spec)
+    if check
+        maxspec = maximum(absspec)
+        pos = absspec.>maxspec - tol
+        if sum(pos) > 1
+            rvec, lvec = lrvec(vecs[:,pos], transpose(inv(vecs)[pos,:]))
+            return maxspec, rvec, lvec
+        end
+    end
+    pos = argmax(absspec)
+    spec[pos], vecs[:,pos], inv(vecs)[pos,:]
+end
 #--- Overlap
 normalization(A) = dominent_eigval!(trm(A))
 normalization(A,B) = dominent_eigval!(trm(A,B))
 inner(A1,A2) = dominent_eigval!(gtrm(A1,A2))
 inner(A1,B1,A2,B2) = dominent_eigval!(gtrm(A1,B1,A2,B2))
+#--- Energy
+function energy(H,Ts...)
+    T = comb(Ts...)
+    TM = trm(T)
+    em, rv, lv = dominent_eigvecs!(TM)
+    HTM = utrm(T,H,T)
+    E = (transpose(lv) * HTM * rv) / em
+    real(E)
+end
 #--- Symmetry representation
 function symrep(A,U; TR=false)
     cA = TR ? conj(A) : A
@@ -91,5 +117,3 @@ function symrep(A,B,Ua,Ub; TR=false)
     de, dv = dominent_eigen!(utrm(A,Ua,cA) * utrm(B,Ub,cB))
     reshape(dv,χ,χ)
 end
-
-end # module TransferMatrix

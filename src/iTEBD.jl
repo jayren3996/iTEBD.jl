@@ -1,61 +1,63 @@
 module iTEBD
+#--- CONSTANT
+const BOUND = 50
+const SVDTOL = 1e-7
+const SQRTTOL = 1e-5
+const SORTTOL = 1e-3
 #--- Import
 using LinearAlgebra
 using TensorOperations
-include("Gate.jl")
+#--- Include
+include("Circuits.jl")
 include("Canonical.jl")
 include("SpinOperators.jl")
 include("TransferMatrix.jl")
-using .Gate: applygate
-using .Canonical: canonical
 using .SpinOperators: spinop
-using .TransferMatrix: trm, gtrm, utrm, normalization, inner, symrep
-using .TransferMatrix: dominent_eigen, dominent_eigen!
-using .TransferMatrix: dominent_eigval, dominent_eigval!
 #--- Export
 export applygate, canonical, spinop
-export TEBD
+export TEBD, energy
 export trm, gtrm, utrm, normalization, inner, symrep
 export dominent_eigen, dominent_eigen!, dominent_eigval, dominent_eigval!
-#--- CONSTANT
-const BOUND = 50
-const TOL = 1e-7
+#--- Helper functions
+commontype(T...) = promote_type(eltype.(T)...)
+pindex(L,i) = begin
+    i = mod(i-1, length(L)) + 1
+    vcat(L[i:end],L[1:i-1])
+end
 #--- TEBD type
 mutable struct TEBD{T}
-    gate::Array{T,4}
+    site::Int64
+    gate::Array{T,2}
     dt::Float64
     N::Int64
     bound::Int64
     tol::Float64
 end
-function TEBD(H, dt; mode::String="r", bound=BOUND, tol=TOL)
+function TEBD(H, dt; site=2, mode::String="r", bound=BOUND, tol=SVDTOL)
     if mode == "r" || mode == "real"
         expH = exp(-1im * dt * H)
     elseif mode == "i" || mode == "imag"
         expH = exp(-dt * H)
     end
-    d = Int(sqrt(size(H,1)))
-    gate = reshape(expH,d,d,d,d)
-    TEBD(gate, dt, 0, bound, tol)
+    TEBD(site, expH, dt, 0, bound, tol)
 end
 #--- Run TEBD
-function (tebd::TEBD)(mps::Tuple)
-    A,B,λ1,λ2 = mps
+function (tebd::TEBD)(tensors, schmidtvals)
     gate = tebd.gate
     bound = tebd.bound
     tol = tebd.tol
-
-    A,λ1,B = applygate(gate,A,B,λ2, bound=bound,tol=tol)
-    B,λ2,A = applygate(gate,B,A,λ1, bound=bound,tol=tol)
-    tebd.N += 1
-    A,B,λ1,λ2
-end
-function (tebd::TEBD)(mps::Tuple, n::Int64)
-    A,B,λ1,λ2 = mps
-    for i = 1:n
-        A,B,λ1,λ2 = tebd((A,B,λ1,λ2))
+    T,V = applygate!(gate,schmidtvals[end],tensors..., bound=bound, tol=tol)
+    for i=2:tebd.site
+        T,V = applygate!(gate,V[1],pindex(T,2)..., bound=bound,tol=tol)
     end
-    A,B,λ1,λ2
+    tebd.N += 1
+    pindex(T,2), pindex(V,2)
+end
+function (tebd::TEBD)(tensors, schmidtvals, n)
+    for i = 1:n
+        tensors, schmidtvals = tebd(tensors, schmidtvals)
+    end
+    tensors, schmidtvals
 end
 
 end # module iTEBD

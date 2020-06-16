@@ -1,6 +1,5 @@
 include("../src/iTEBD.jl")
 using .iTEBD
-#using iTEBD
 using Test
 #--- Test canonical
 @testset "CanonicalForm" begin
@@ -20,10 +19,10 @@ using Test
     model[4,2,4] = +sqrt(1/3)
     model[4,3,3] = -sqrt(2/3)
 
-    res = canonical(model,model)
-    ov = inner(res[1],res[2],aklt,aklt)
-    @test res[3][1] ≈ res[3][2]
-    @test res[4][1] ≈ res[4][2]
+    T,V = canonical(model,model)
+    ov = inner(T...,aklt,aklt)
+    @test V[1][1] ≈ V[1][2]
+    @test V[2][1] ≈ V[2][2]
     @test ov ≈ 1.0
 end
 
@@ -41,14 +40,9 @@ end
     end
     tebd = TEBD(H,dt, mode="i",bound=rdim)
 
-    mps = begin
-        A = rand(rdim,3,rdim)
-        la = rand(rdim)
-        B = rand(rdim,3,rdim)
-        lb = rand(rdim)
-        (A,B,la,lb)
-    end
+    Ts = [rand(rdim,3,rdim), rand(rdim,3,rdim)]
+    λs = [rand(rdim), rand(rdim)]
     # Best: 1.07s
-    @time mps = tebd(mps,1000)
-    @test inner(mps[1],mps[2],aklt,aklt) ≈ 1.0 atol=1e-5
+    @time Ts,λs = tebd(Ts,λs,1000)
+    @test inner(Ts...,aklt,aklt) ≈ 1.0 atol=1e-5
 end
