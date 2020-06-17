@@ -1,9 +1,12 @@
+__precompile__()
 module iTEBD
 #--- CONSTANT
 const BOUND = 50
 const SVDTOL = 1e-7
 const SQRTTOL = 1e-5
 const SORTTOL = 1e-3
+const Tensor{T} = Array{T,3} where T<:Number
+const GTensor{T} = Array{T,4} where T<:Number
 #--- Import
 using LinearAlgebra
 using TensorOperations
@@ -60,4 +63,16 @@ function (tebd::TEBD)(tensors, schmidtvals, n)
     tensors, schmidtvals
 end
 
+precompile(TL!, (Array{Float64,3}, Vector{Float64}))
+precompile(TL!, (Array{ComplexF64,3}, Vector{Float64}))
+precompile(TLiR!, (Array{Float64,3}, Vector{Float64}, Vector{Float64}))
+precompile(TLiR!, (Array{ComplexF64,3}, Vector{Float64}, Vector{Float64}))
+precompile(TT, (Tensor{Float64}, Tensor{Float64}))
+precompile(TT, (Tensor{ComplexF64}, Tensor{ComplexF64}))
+precompile(GT, (Tensor{Float64}, Tensor{Float64}))
+precompile(GT, (Tensor{ComplexF64}, Tensor{ComplexF64}))
+precompile(tsvd, (GTensor{Float64}, Int64, Float64))
+precompile(tsvd, (GTensor{ComplexF64}, Int64, Float64))
+precompile(tsplit!, (GTensor{Float64}, Vector{Float64}, Int64, Float64))
+precompile(tsplit!, (GTensor{ComplexF64}, Vector{Float64}, Int64, Float64))
 end # module iTEBD

@@ -1,9 +1,9 @@
 #--- Inplace
-function TL!(T,L)
+function TL!(T::Array, L::Vector)
     rT = reshape(T, size(T,1), :)
     lmul!(Diagonal(L),rT)
 end
-function TLiR!(T,L,R)
+function TLiR!(T::Array, L::Vector, R::Vector)
     n1 = length(L)
     n2 = length(R)
     for j=1:n2, i=1:n1
@@ -11,24 +11,24 @@ function TLiR!(T,L,R)
     end
 end
 #--- Multiplication
-function TT(T1,T2)
-    sh1 = size(T1)
-    sh2 = size(T2)
-    rT1 = reshape(T1, :,sh1[end])
-    rT2 = reshape(T2, sh2[1],:)
-    T1T2 = rT1 * rT2
-    reshape(T1T2, sh1[1],:,sh2[end])
+function TT(T1::Tensor, T2::Tensor)
+    i1,i2,i3 = size(T1)
+    j1,j2,j3 = size(T2)
+    rT1 = reshape(T1, :,i3)
+    rT2 = reshape(T2, j1,:)
+    reshape(rT1*rT2, i1,:,j3)
 end
-function GT(G,T)
-    nT = Array{commontype(G,T)}(undef, size(T))
-    @tensor nT[:] = T[-1,1,-3] * G[-2,1]
-    nT
+function GT(G::Matrix, T::Tensor)
+    i1,i2,i3 = size(T)
+    M = reshape(PermutedDimsArray(T, (2,1,3)), i2,:)
+    GM = G*M
+    rGM = reshape(GM, i2,i1,i3)
+    permutedims(rGM, (2,1,3))
 end
 #--- Tensor split
-function tsvd(T, bound=BOUND, tol=SVDTOL)
+function tsvd(T::GTensor, bound=BOUND, tol=SVDTOL)
     χ1,d1,d2,χ2 = size(T)
-    mat = reshape(T, χ1*d1, d2*χ2)
-    U, S, V = svd!(mat)
+    U, S, V = svd!(reshape(T, χ1*d1,:))
     len = bound==0 ? sum(S .> tol) : min(sum(S .> tol), bound)
     s = S[1:len]
     s /= norm(s)
@@ -36,14 +36,14 @@ function tsvd(T, bound=BOUND, tol=SVDTOL)
     v = reshape(transpose(V[:,1:len]), :,d2,χ2)
     u,s, Array(v)
 end
-function tsplit!(T, λ, bound=BOUND, tol=SVDTOL)
+function tsplit!(T::GTensor, λ::Vector, bound=BOUND, tol=SVDTOL)
     TL!(T, λ)
     u,s,v = tsvd(T, bound, tol)
     TLiR!(u,λ,s)
     u,s,v
 end
 #--- Combination & decomposition
-function combination(λ, Ts...)
+function combination(λ::Vector, Ts::Tensor...)
     n = length(Ts)
     T = Ts[1]
     TL!(T,λ)
@@ -52,7 +52,7 @@ function combination(λ, Ts...)
     end
     T
 end
-function comb(Ts...)
+function comb(Ts::Tensor...)
     n = length(Ts)
     T = Ts[1]
     for i=2:n
@@ -60,7 +60,7 @@ function comb(Ts...)
     end
     T
 end
-function decomposition(λ, T, d, n; bound=BOUND, tol=SVDTOL)
+function decomposition(λ::Vector, T::Tensor, d, n; bound=BOUND, tol=SVDTOL)
     χ = length(λ)
     Ts = Array{Array{eltype(T),3}}(undef,n)
     λs = Array{Array{Float64,1}}(undef, n)
@@ -80,30 +80,10 @@ function decomposition(λ, T, d, n; bound=BOUND, tol=SVDTOL)
     Ts, λs
 end
 #--- Gate
-function applygate!(G, λ, A...; bound=BOUND, tol=SVDTOL)
+function applygate!(G::Matrix, λ::Vector, A::Tensor...; bound=BOUND, tol=SVDTOL)
     n = length(A)
     d = size(A[1],2)
     B = combination(λ, A...)
     C = GT(G,B)
     decomposition(λ,C,d,n, bound=bound, tol=tol)
-end
-#--- Deprecated
-function glab!(T,G,L,A,B)
-    dL = Diagonal(L)
-    @tensor T[:] = dL[-1,1]*A[1,3,2]*B[2,4,-4]*G[-2,-3,3,4]
-end
-function applygate(G,λ2,A,B; bound=BOUND, tol=SVDTOL)
-    χ, d = size(A)[1:2]
-    block = Array{commontype(G,A,B)}(undef, χ,d,d,χ)
-    glab!(block,G,λ2,A,B)
-    nA, λ1, nB = tsvd(block, bound, tol)
-    TLiR!(nA,λ2,λ1)
-    nA, λ1, nB
-end
-function applygate_new(G,λ2,A,B; bound=BOUND, tol=SVDTOL)
-    χ, d = size(A)[1:2]
-    block = Array{commontype(G,A,B)}(undef, χ,d,d,χ)
-    glab!(block,G,λ2,A,B)
-    T,λ = decomposition(λ2,block,d,2, bound=bound, tol=tol)
-    T[1], λ[1], T[2]
 end

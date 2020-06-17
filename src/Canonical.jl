@@ -14,7 +14,7 @@ function schmidtform(tensor; check=true, tol=SORTTOL)
     i1,i2,i3 = size(tensor)
     X = matsqrt!(reshape(rvec,i1,:))
     Y = transpose(matsqrt!(reshape(lvec,i3,:)))
-    U, S, V = svd!(Y * X)
+    U, S, V = svd(Y * X)
     dS = Diagonal(S)
     S /= norm(S)
     lmat = V * X'
