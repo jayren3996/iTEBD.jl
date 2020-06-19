@@ -1,7 +1,7 @@
 export canonical
 #--- Factorization
 function matsqrt!(matrix::AbstractMatrix;
-                  tol::Float64=SQRTTOL)
+                  tol::AbstractFloat=SQRTTOL)
     vals, vecs = eigen!(Hermitian(matrix))
     if all(vals .< tol)
         vals *= -1
@@ -13,7 +13,7 @@ end
 #--- Schmidt form
 function canonical(tensor::Tensor{T};
                    check::Bool=true,
-                   tol::Float64=SORTTOL) where T
+                   tol::AbstractFloat=SORTTOL) where T
     eigmax, rvec, lvec = dominent_eigvecs!(trm(tensor), check=check, tol=tol)
     i1,i2,i3 = size(tensor)
     X = matsqrt!(reshape(rvec,i1,:))
@@ -35,7 +35,7 @@ end
 #--- canonical form
 function canonical(Ts::TensorArray;
                    check::Bool=true,
-                   tol::Float64=SORTTOL)
+                   tol::AbstractFloat=SORTTOL)
     n = length(Ts)
     d = size(Ts[1], 2)
     T = TTT(Ts)

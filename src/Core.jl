@@ -36,7 +36,7 @@ function run_tebd!(T::TensorArray,
 end
 function (tebd_system::TEBD)(T::TensorArray,
                              V::ValuesArray,
-                             n::Int64=1)
+                             n::Integer=1)
     gate = tebd_system.gate
     bound = tebd_system.bound
     tol = tebd_system.tol

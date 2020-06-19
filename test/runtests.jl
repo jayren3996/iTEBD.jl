@@ -42,7 +42,7 @@ end
     sys = tebd(H,dt, mode="i",bound=rdim)
 
     Ts = [rand(rdim,3,rdim), rand(rdim,3,rdim)]
-    λs = [rand(rdim), rand(rdim)]
+    λs = [ones(rdim), ones(rdim)]
     # Best: 0.85s
     @time Ts,λs = sys(Ts,λs,1000)
     @test inner(Ts,[aklt,aklt]) ≈ 1.0 atol=1e-5

@@ -1,4 +1,3 @@
-__precompile__()
 module iTEBD
 #--- CONSTANT
 const BOUND = 50
@@ -10,10 +9,8 @@ const TensorArray{T} = Array{Array{T,3}, 1} where T<:Number
 const ValuesArray{T} = Vector{Vector{T}} where T<:Number
 const GTensor{T} = Array{T,4} where T<:Number
 commontype(T...) = promote_type(eltype.(T)...)
-#--- Import
-using LinearAlgebra
-using TensorOperations
 #--- Include
+using LinearAlgebra
 include("Circuits.jl")
 include("Canonical.jl")
 include("SpinOperators.jl")
