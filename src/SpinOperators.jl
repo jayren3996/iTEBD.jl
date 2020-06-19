@@ -1,5 +1,3 @@
-module SpinOperators
-using LinearAlgebra
 export spinop
 
 function Sp(J)
@@ -73,6 +71,4 @@ function spinop(op::String, S=1/2)
         end
     end
     Array(operator)
-end
-
 end

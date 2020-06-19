@@ -1,68 +1,75 @@
-#--- Overwrite functions
-function gtrm!(M, A1, A2)
-    cA2 = conj(A2)
-    @tensor M[:] = A1[-1,1,-3] * cA2[-2,1,-4]
-end
-function gtrm!(M, A1, B1, A2, B2)
-    cA2 = conj(A2)
-    cB2 = conj(B2)
-    @tensor M[:] = A1[-1,2,1] * B1[1,3,-3] * cA2[-2,2,4] * cB2[4,3,-4]
-end
-function utrm!(M, A, U, B)
-    cB = conj!(B)
-    @tensor M[:] = A[-1,1,-3] * U[2,1] * cB[-2,2,-4]
-end
-#--- Transfer matrix
-function trm(A)
-    χ = size(A, 1)
-    M = Array{eltype(A)}(undef, χ,χ,χ,χ)
-    gtrm!(M, A,A)
-    reshape(M, χ^2, χ^2)
-end
-function trm(A,B)
-    χ = size(A, 1)
-    M = Array{commontype(A,B)}(undef, χ,χ,χ,χ)
-    gtrm!(M, A,B,A,B)
-    reshape(M, χ^2, χ^2)
-end
+export trm, inner, symrep
 #--- Generalized transfer matrix
-function gtrm(A1, A2)
-    χ1 = size(A1, 1)
-    χ2 = size(A2, 1)
-    M = Array{commontype(A1,A2)}(undef, χ1,χ2,χ1,χ2)
-    gtrm!(M, A1,A2)
-    reshape(M, χ1*χ2, χ1*χ2)
+function gtrm(T1::Tensor,
+              T2::Tensor)
+    i1,j1,k1 = size(T1)
+    i2,j2,k2 = size(T2)
+    T1 = conj(T1)
+    M1 = reshape(PermutedDimsArray(T1,(1,3,2)), i1*k1,:)
+    M2 = reshape(PermutedDimsArray(T2,(2,1,3)), :,i2*k2)
+    M = M1 * M2
+    tM = reshape(M, i1,k1,i2,k2)
+    reshape(permutedims(tM,(1,3,2,4)), i1*i2,:)
 end
-function gtrm(A1, B1, A2, B2)
-    χ1 = size(A1, 1)
-    χ2 = size(A2, 1)
-    M = Array{commontype(A1,A2,B1,B2)}(undef, χ1,χ2,χ1,χ2)
-    gtrm!(M, A1,B1,A2,B2)
-    reshape(M, χ1*χ2, χ1*χ2)
+function gtrm(T1s::TensorArray,
+              T2s::TensorArray)
+    n = length(T1s)
+    M = gtrm(T1s[1], T2s[1])
+    for i=2:n
+        M = M * gtrm(T1s[i], T2s[i])
+    end
+    M
 end
+trm(T::Union{Tensor, TensorArray}) = gtrm(T,T)
 #--- Operator transfermatrix
-function utrm(A,U,B)
-    χ = size(A, 1)
-    M = Array{commontype(A,U,B)}(undef, χ,χ,χ,χ)
-    utrm!(M,A,U,B)
-    reshape(M, χ^2, χ^2)
+function otrm(T1::Tensor,
+              T2::Tensor,
+              O::AbstractMatrix)
+    i1,j1,k1 = size(T1)
+    i2,j2,k2 = size(T2)
+    T1 = conj(T1)
+    M1 = reshape(PermutedDimsArray(T1,(1,3,2)), i1*k1,:)
+    M2 = reshape(PermutedDimsArray(T2,(2,1,3)), :,i2*k2)
+    M = M1 * O * M2
+    tM = reshape(M, i1,k1,i2,k2)
+    reshape(permutedims(tM,(1,3,2,4)), i1*i2,:)
+end
+function otrm(T1s::TensorArray,
+              T2s::TensorArray,
+              O::AbstractMatrix)
+    n = length(T1s)
+    M = otrm(T1s[1], T2s[1], O)
+    for i=2:n
+        M = M * otrm(T1s[i], T2s[i], O)
+    end
+    M
+end
+function otrm(T1s::TensorArray,
+              T2s::TensorArray,
+              O::Vector{T}) where T<:AbstractMatrix
+    n = length(T1s)
+    M = otrm(T1s[1], T2s[1], O[1])
+    for i=2:n
+        M = M * otrm(T1s[i], T2s[i], O[i])
+    end
+    M
 end
 #--- Dominent eigensystem
-function dominent_eigen(matrix)
+function dominent_eigen(matrix::AbstractMatrix)
     spec, vecs = eigen(matrix)
     vals = abs.(spec)
     pos = argmax(vals)
     vals[pos], vecs[:,pos]
 end
-function dominent_eigen!(matrix)
+function dominent_eigen!(matrix::AbstractMatrix)
     spec, vecs = eigen!(matrix)
     vals = abs.(spec)
     pos = argmax(vals)
     vals[pos], vecs[:,pos]
 end
-dominent_eigval(matrix) = maximum(abs.(eigvals(matrix)))
-dominent_eigval!(matrix) = maximum(abs.(eigvals!(matrix)))
-function lrvec(lvecs, rvecs)
+dominent_eigval(matrix::AbstractMatrix) = maximum(abs.(eigvals(matrix)))
+dominent_eigval!(matrix::AbstractMatrix) = maximum(abs.(eigvals!(matrix)))
+function lrvec(lvecs::AbstractMatrix, rvecs::AbstractMatrix)
     n = Int(sqrt(size(lvecs,1)))
     rstate = ones(n)
     lstate = ones(n)
@@ -70,7 +77,9 @@ function lrvec(lvecs, rvecs)
     lvec = lvecs * (lvecs' * reshape(lstate*lstate', :))
     return rvec, lvec
 end
-function dominent_eigvecs!(matrix; check=true, tol=SORTTOL)
+function dominent_eigvecs!(matrix::AbstractMatrix;
+                           check::Bool=true,
+                           tol::AbstractFloat=SORTTOL)
     spec, vecs = eigen!(matrix)
     absspec = abs.(spec)
     if check
@@ -82,38 +91,44 @@ function dominent_eigvecs!(matrix; check=true, tol=SORTTOL)
         end
     end
     pos = argmax(absspec)
-    spec[pos], vecs[:,pos], inv(vecs)[pos,:]
+    absspec[pos], vecs[:,pos], inv(vecs)[pos,:]
 end
 #--- Overlap
-normalization(A) = dominent_eigval!(trm(A))
-normalization(A,B) = dominent_eigval!(trm(A,B))
-inner(A1,A2) = dominent_eigval!(gtrm(A1,A2))
-inner(A1,B1,A2,B2) = dominent_eigval!(gtrm(A1,B1,A2,B2))
+inner(T::Union{Tensor, TensorArray}) = dominent_eigval!(trm(T))
+inner(T1::Tensor, T2::Tensor) = dominent_eigval!(gtrm(T1,T2))
+inner(T1::TensorArray, T2::TensorArray) = dominent_eigval!(gtrm(T1,T2))
 #--- Energy
-function energy(H,Ts...)
-    T = comb(Ts...)
+function energy(H::AbstractMatrix,
+                Ts::TensorArray)
+    T = TTT(Ts)
     TM = trm(T)
     em, rv, lv = dominent_eigvecs!(TM)
-    HTM = utrm(T,H,T)
+    HTM = otrm(T,H,T)
     E = (transpose(lv) * HTM * rv) / em
     real(E)
 end
 #--- Symmetry representation
-function symrep(A,U; TR=false)
-    cA = TR ? conj(A) : A
-    de, dv = dominent_eigen!(utrm(A,U,cA))
+function symrep(T::Tensor,
+                U::AbstractMatrix;
+                TR::Bool=false)
+    tT = TR ? conj(T) : T
+    M = otrm(T,U,tT)
+    de, dv = dominent_eigen!(M)
     reshape(dv,χ,χ)
 end
-function symrep(A,B,U; TR=false)
-    χ = size(A,1)
-    cA = TR ? conj(A) : A
-    cB = TR ? conj(B) : B
-    de, dv = dominent_eigen!(utrm(A,U,cA) * utrm(B,U,cB))
+function symrep(Ts::TensorArray,
+                U::AbstractMatrix;
+                TR::Bool=false)
+    tT = TR ? conj.(Ts) : Ts
+    M = otrm(T,U,tT)
+    de, dv = dominent_eigen!(M)
     reshape(dv,χ,χ)
 end
-function symrep(A,B,Ua,Ub; TR=false)
-    cA = TR ? conj(A) : A
-    cB = TR ? conj(B) : B
-    de, dv = dominent_eigen!(utrm(A,Ua,cA) * utrm(B,Ub,cB))
+function symrep(Ts::TensorArray,
+                U::Vector{T};
+                TR::Bool=false) where T<:AbstractMatrix
+    tT = TR ? conj.(Ts) : Ts
+    M = otrm(T,U,tT)
+    de, dv = dominent_eigen!(M)
     reshape(dv,χ,χ)
 end

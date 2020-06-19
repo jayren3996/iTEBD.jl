@@ -1,5 +1,6 @@
 include("../src/iTEBD.jl")
 using .iTEBD
+#using iTEBD
 using Test
 #--- Test canonical
 @testset "CanonicalForm" begin
@@ -19,14 +20,14 @@ using Test
     model[4,2,4] = +sqrt(1/3)
     model[4,3,3] = -sqrt(2/3)
 
-    T,V = canonical(model,model)
-    ov = inner(T...,aklt,aklt)
+    T,V = canonical([model,model])
+    ov = inner(T,[aklt,aklt])
     @test V[1][1] ≈ V[1][2]
     @test V[2][1] ≈ V[2][2]
     @test ov ≈ 1.0
 end
 
-@testset "ITEBD" begin
+@testset "iTEBD" begin
     aklt = zeros(2,3,2)
     aklt[1,1,2] = +sqrt(2/3)
     aklt[1,2,1] = -sqrt(1/3)
@@ -38,11 +39,11 @@ end
         ss = spinop("xx",1) + spinop("yy",1) + spinop("zz",1)
         h2 = ss + 1/3*ss^2
     end
-    tebd = TEBD(H,dt, mode="i",bound=rdim)
+    sys = tebd(H,dt, mode="i",bound=rdim)
 
     Ts = [rand(rdim,3,rdim), rand(rdim,3,rdim)]
     λs = [rand(rdim), rand(rdim)]
-    # Best: 1.07s
-    @time Ts,λs = tebd(Ts,λs,1000)
-    @test inner(Ts...,aklt,aklt) ≈ 1.0 atol=1e-5
+    # Best: 0.85s
+    @time Ts,λs = sys(Ts,λs,1000)
+    @test inner(Ts,[aklt,aklt]) ≈ 1.0 atol=1e-5
 end
