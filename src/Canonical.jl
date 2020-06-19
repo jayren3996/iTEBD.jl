@@ -21,11 +21,11 @@ function canonical(tensor::Tensor{T};
     U, S, V = svd(Y * X)
     dS = Diagonal(S)
     S /= norm(S)
-    lmat = V * X'
+    lmat = transpose(V) * X'
     rmat = Y' * U
     j1 = size(lmat,1)
     j2 = size(rmat,2)
-    canonicalT = Array{T}(undef,j1,i2,j2)
+    canonicalT = Array{ComplexF64}(undef,j1,i2,j2)
     for i=1:i2
         canonicalT[:,i,:] .= lmat * tensor[:,i,:] * rmat * dS
     end
