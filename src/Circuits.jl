@@ -34,7 +34,7 @@ function λTTT!(λ::Vector,
     TL!(Ts[1],λ)
     TTT(Ts)
 end
-function GT(G::Matrix,
+function GT(G::AbstractMatrix,
             T::Tensor)
     i1,i2,i3 = size(T)
     M = reshape(PermutedDimsArray(T, (2,1,3)), i2,:)
