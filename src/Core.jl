@@ -1,48 +1,45 @@
-export tebd
-function pindex(L::Vector, i::Integer)
-    j = mod(i-1, length(L)) + 1
-    vcat(L[j:end],L[1:j-1])
-end
-#--- TEBD type
-struct TEBD{T<:AbstractMatrix}
+#---------------------------------------------------------------------------------------------------
+# iTEBD object
+#---------------------------------------------------------------------------------------------------
+struct iTEBD_Engine{T<:AbstractMatrix}
     gate ::T
+    renormalize::Bool
     bound::Int64
     tol  ::Float64
 end
-function tebd(H::AbstractMatrix,
-              dt::AbstractFloat;
-              mode::String="r",
-              bound::Int64=BOUND,
-              tol::Float64=SVDTOL)
-    if mode == "r" || mode == "real"
-        expH = exp(-1im * dt * H)
-    elseif mode == "i" || mode == "imag"
-        expH = exp(-dt * H)
-    end
-    TEBD(expH, bound, tol)
+#---------------------------------------------------------------------------------------------------
+function cycle(
+    mps::iMPS, 
+    i::Integer=2
+)
+    n = mps.n
+    j = mod(i-1, n) + 1
+    pos_cycled = [j:n..., 1:(j-1)...]
+    Γ_cycled = mps.Γ[pos_cycled]
+    λ_cycled = mps.λ[pos_cycled]
+    iMPS(Γ_cycled, λ_cycled, n)
 end
-#--- Run TEBD
-function run_tebd!(T::TensorArray,
-                   V::ValuesArray,
-                   gate::AbstractMatrix,
-                   site::Int64,
-                   bound::Int64,
-                   tol::Float64)
-    T,V = applygate!(gate, V[end], T, bound, tol)
-    for i=2:site
-        T,V = applygate!(gate, V[1], pindex(T,2), bound, tol)
-    end
-    pindex(T,2), pindex(V,2)
+#---------------------------------------------------------------------------------------------------
+export itebd
+function itebd(
+    H::AbstractMatrix{<:Number},
+    dt::AbstractFloat;
+    mode::String="r",
+    renormalize::Bool=true,
+    bound::Int64=BOUND,
+    tol::Float64=SVDTOL
+)
+    expH = mode=="i" ? exp(-dt * H) : exp(-1im * dt * H)
+    iTEBD_Engine(expH, renormalize, bound, tol)
 end
-function (tebd_system::TEBD)(T::TensorArray,
-                             V::ValuesArray,
-                             n::Integer=1)
-    gate = tebd_system.gate
-    bound = tebd_system.bound
-    tol = tebd_system.tol
-    site = length(T)
-    for i=1:n
-        T,V = run_tebd!(T, V, gate, site, bound, tol)
+#---------------------------------------------------------------------------------------------------
+# Run iTEBD
+#---------------------------------------------------------------------------------------------------
+function (engin::iTEBD_Engine)(mps::iMPS)
+    gate, renormalize, bound, tol = engin.gate, engin.renormalize, engin.bound, engin.tol
+    mps = applygate!(gate, mps, renormalize=renormalize, bound=bound, tol=tol)
+    for i=2:mps.n
+        mps = applygate!(gate, cycle(mps, 2), renormalize=renormalize, bound=bound, tol=tol)
     end
-    T, V
+    cycle(mps, 2)
 end

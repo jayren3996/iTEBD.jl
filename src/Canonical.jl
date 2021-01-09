@@ -1,45 +1,59 @@
-export canonical
-#--- Factorization
-function matsqrt!(matrix::AbstractMatrix;
-                  tol::AbstractFloat=SQRTTOL)
-    vals, vecs = eigen!(Hermitian(matrix))
-    if all(vals .< tol)
-        vals *= -1
-    end
-    pos = vals .> tol
-    sqrtvals = Diagonal(sqrt.(vals[pos]))
-    vecs[:,pos] * sqrtvals
+#---------------------------------------------------------------------------------------------------
+# Factorization
+#---------------------------------------------------------------------------------------------------
+function matsqrt(mat::AbstractMatrix{<:Number})
+    vals, vecs = eigen(Hermitian(mat*mat'))
+    vals_sqrt = Diagonal(sqrt.(sqrt.(vals)))
+    vecs * vals_sqrt
 end
-#--- Schmidt form
-function canonical(tensor::Tensor{T};
-                   check::Bool=true,
-                   tol::AbstractFloat=SORTTOL) where T
-    eigmax, rvec, lvec = dominent_eigvecs!(trm(tensor), check=check, tol=tol)
-    i1,i2,i3 = size(tensor)
-    X = matsqrt!(reshape(rvec,i1,:))
-    Y = transpose(matsqrt!(reshape(lvec,i3,:)))
-    U, S, V = svd(Y * X)
-    dS = Diagonal(S)
-    S /= norm(S)
-    lmat = transpose(V) * X'
-    rmat = Y' * U
-    j1 = size(lmat,1)
-    j2 = size(rmat,2)
-    canonicalT = Array{ComplexF64}(undef,j1,i2,j2)
-    for i=1:i2
-        canonicalT[:,i,:] .= lmat * tensor[:,i,:] * rmat * dS
+#---------------------------------------------------------------------------------------------------
+# Schmidt form
+#---------------------------------------------------------------------------------------------------
+export canonical
+function canonical(
+    tensor::AbstractArray{<:Number,3};
+    renormalize::Bool=false
+)
+    eigmax, rvec, lvec = dominent_eigvecs(trm(tensor))
+    X, Yt = begin
+        α, d, β = size(tensor)
+        rmat = reshape(rvec, α, :)
+        lmat = reshape(lvec, β, :)
+        matsqrt(rmat), transpose(matsqrt(lmat))
     end
-    canonicalT /= sqrt(eigmax)
+    U, S, V = begin
+        res = svd(Y * X)
+        res.U, res.S, res.Vt
+    end
+    canonicalT = begin
+        dS = Diagonal(S)
+        lmat = V / X
+        rmat = Yt \ U
+        ctype = promote_type(eltype(lmat), eltype(rmat), eltype(tensor))
+        temp = Array{ctype}(undef, size(tensor))
+        @tensor temp[:] = lmat[-1,1] * tensor[1,-2,2] * rmat[2,3] * dS[3,-3]
+        renormalize ? temp / sqrt(eigmax) : temp
+    end
     canonicalT, S
 end
-#--- canonical form
-function canonical(Ts::TensorArray;
-                   check::Bool=true,
-                   tol::AbstractFloat=SORTTOL)
+#---------------------------------------------------------------------------------------------------
+# canonical form
+#---------------------------------------------------------------------------------------------------
+function canonical(
+    Ts::AbstractVector{<:AbstractArray{<:Number, 3}};
+    renormalize::Bool=false,
+    bound::Integer=BOUND,
+    tol::AbstractFloat=SVDTOL
+)
     n = length(Ts)
-    d = size(Ts[1], 2)
-    T = TTT(Ts)
-    A, λ = canonical(T, check=check, tol=tol)
-    TL!(A, λ)
-    decomposition(λ, A, d, n)
+    T = tensor_group(Ts)
+    A, λ = canonical(T)
+    tensor_lmul!(λ, A)
+    tensor_decomp!(A, λ, n, renormalize=renormalize, bound=bound, tol=tol)
+end
+#---------------------------------------------------------------------------------------------------
+function canonical(mps::iMPS)
+    Γ, n = mps.Γ, mps.n
+    Γ, λ = canonical(Γ)
+    iMPS(Γ, λ, n)
 end

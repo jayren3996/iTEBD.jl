@@ -3,47 +3,41 @@ using .iTEBD
 #using iTEBD
 using Test
 #--- Test canonical
+const aklt = begin
+    aklt_tensor = zeros(2,3,2)
+    aklt_tensor[1,1,2] = +sqrt(2/3)
+    aklt_tensor[1,2,1] = -sqrt(1/3)
+    aklt_tensor[2,2,2] = +sqrt(1/3)
+    aklt_tensor[2,3,1] = -sqrt(2/3)
+    aklt_tensor
+    iMPS([aklt_tensor, aklt_tensor])
+end
+
 @testset "CanonicalForm" begin
-    aklt = zeros(2,3,2)
-    aklt[1,1,2] = +sqrt(2/3)
-    aklt[1,2,1] = -sqrt(1/3)
-    aklt[2,2,2] = +sqrt(1/3)
-    aklt[2,3,1] = -sqrt(2/3)
-
-    model = zeros(4,3,4)
-    model[1,1,2] = +sqrt(2/3)
-    model[1,2,1] = -sqrt(1/3)
-    model[2,2,2] = +sqrt(1/3)
-    model[2,3,1] = -sqrt(2/3)
-    model[3,1,4] = +sqrt(2/3)
-    model[3,2,3] = -sqrt(1/3)
-    model[4,2,4] = +sqrt(1/3)
-    model[4,3,3] = -sqrt(2/3)
-
-    T,V = canonical([model,model])
-    ov = inner(T,[aklt,aklt])
-    @test V[1][1] ≈ V[1][2]
-    @test V[2][1] ≈ V[2][2]
+    aklt_canonical = canonical(aklt)
+    ov = inner_product(aklt, aklt_canonical)
     @test ov ≈ 1.0
+    @test aklt_canonical.λ[1][1] ≈ 1/sqrt(2)
+    @test aklt_canonical.λ[2][2] ≈ 1/sqrt(2)
+    
 end
 
 @testset "iTEBD" begin
-    aklt = zeros(2,3,2)
-    aklt[1,1,2] = +sqrt(2/3)
-    aklt[1,2,1] = -sqrt(1/3)
-    aklt[2,2,2] = +sqrt(1/3)
-    aklt[2,3,1] = -sqrt(2/3)
     dt = 0.1
     rdim = 50
     H = begin
-        ss = spinop("xx",1) + spinop("yy",1) + spinop("zz",1)
+        ss = spinmat("xx",3) + spinmat("yy",3) + spinmat("zz",3)
         h2 = ss + 1/3*ss^2
     end
-    sys = tebd(H,dt, mode="i",bound=rdim)
-
-    Ts = [rand(rdim,3,rdim), rand(rdim,3,rdim)]
-    λs = [ones(rdim), ones(rdim)]
+    sys = itebd(H, dt, mode="i", bound=rdim)
+    mps = rand_iMPS(2, 3, rdim)
     # Best: 0.85s
-    @time Ts,λs = sys(Ts,λs,1000)
-    @test inner(Ts,[aklt,aklt]) ≈ 1.0 atol=1e-5
+    @time for i=1:1000
+        mps = sys(mps)
+    end
+    @test inner_product(mps, aklt) ≈ 1.0 atol=1e-5
 end
+
+
+
+
