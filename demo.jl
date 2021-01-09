@@ -8,19 +8,31 @@ end
 
 # Create AKLT Hamiltonian and iTEBD engine
 hamiltonian = begin
-    SS = spinop("xx",1) + spinop("yy",1) + spinop("zz",1)
-    SS + 1/3 * SS^2
-end 
+    SS = spinmat("xx", 3) + spinmat("yy", 3) + spinmat("zz", 3)
+    SS + 1/3 * SS^2 + 2/3 * spinmat("11", 3)
+end
+
 engine = begin
-    time_steps = 0.01
-    itebd(hamiltonian, time_steps, mode="i")
+    time_step = 0.01
+    itebd(hamiltonian, time_step, mode="i")
+end
+
+# Exact AKLT ground state
+aklt = begin
+    aklt_tensor = zeros(2,3,2)
+    aklt_tensor[1,1,2] = +sqrt(2/3)
+    aklt_tensor[1,2,1] = -sqrt(1/3)
+    aklt_tensor[2,2,2] = +sqrt(1/3)
+    aklt_tensor[2,3,1] = -sqrt(2/3)
+    aklt_tensor
+    iMPS([aklt_tensor, aklt_tensor])
 end
 
 # Setup TEBD
 for i=1:2000
-    global imps
-    imps = eigen(imps)
-    println("Energy per site: ", expectation(imps, hamiltonian))
+    global imps, aklt, engine
+    imps = engine(imps)
+    if mod(i, 100) == 0
+        println("Overlap: ", inner_product(aklt, imps))
+    end
 end
-
-

@@ -110,31 +110,6 @@ inner_product(T) = dominent_eigval(trm(T))
 inner_product(T1, T2) = dominent_eigval(gtrm(T1, T2))
 inner_product(T1, O, T2) = dominent_eigval(otrm(T1, O, T2))
 #---------------------------------------------------------------------------------------------------
-export expectation
-function expectation(
-    operator::AbstractMatrix,
-    Ts::AbstractVector{<:AbstractArray{<:Number, 3}};
-    renormalize::Bool=false
-)
-    t_grouped = tensor_group(Ts)
-    value = inner_product(t_grouped, operator, t_grouped)
-    expec = if renormalize
-        t_norm = inner_product(t_grouped)
-        real(value) / real(t_norm)
-    else 
-        real(value)
-    end
-    expec
-end
-#---------------------------------------------------------------------------------------------------
-function expectation(
-    operator::AbstractMatrix,
-    mps::iMPS;
-    renormalize::Bool=false
-)
-    expectation(operator, mps.Γ, renormalize=renormalize)
-end
-#---------------------------------------------------------------------------------------------------
 # Symmetry representation
 #---------------------------------------------------------------------------------------------------
 export symrep
