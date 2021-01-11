@@ -63,10 +63,6 @@ function canonical(
     tensor_decomp!(A, λ, n, renormalize=renormalize, bound=bound, tol=tol)
 end
 #---------------------------------------------------------------------------------------------------
-# canonical form
+# Block decomposition
 #---------------------------------------------------------------------------------------------------
-function block_decomp(
-    Γ::AbstractArray{<:Number,3}
-)
-    
-end
+
