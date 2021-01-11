@@ -31,9 +31,9 @@ function canonical(
             min(sum(res.S .> tol), bound)
         end
         s = if renormalize
-            normalize(S[1:len])
+            normalize(res.S[1:len])
         else
-            S[1:len]
+            res.S[1:len]
         end
         u = res.U[:, 1:len]
         v = res.Vt[1:len, :]

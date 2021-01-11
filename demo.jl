@@ -1,4 +1,5 @@
 using iTEBD
+using LinearAlgebra
 
 # Create random iMPS
 imps = begin
@@ -9,7 +10,7 @@ end
 # Create AKLT Hamiltonian and iTEBD engine
 hamiltonian = begin
     SS = spinmat("xx", 3) + spinmat("yy", 3) + spinmat("zz", 3)
-    SS + 1/3 * SS^2 + 2/3 * spinmat("11", 3)
+    SS + 1/3 * SS^2 + 2/3 * I(9)
 end
 
 engine = begin
