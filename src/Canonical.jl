@@ -16,7 +16,7 @@ function canonical(
     bound::Integer=BOUND,
     tol::AbstractFloat=SVDTOL
 )
-    eigmax, rvec, lvec = dominent_eigvecs(trm(tensor))
+    emax, rvec, lvec = dominent_eigvecs(trm(tensor))
     X, Yt = begin
         α, d, β = size(tensor)
         rmat = reshape(rvec, α, :)
@@ -45,7 +45,7 @@ function canonical(
         ctype = promote_type(eltype(lmat), eltype(rmat), eltype(tensor))
         temp = Array{ctype}(undef, size(tensor))
         @tensor temp[:] = lmat[-1,1] * tensor[1,-2,2] * rmat[2,-3]
-        renormalize ? temp / sqrt(eigmax) : temp
+        renormalize ? temp / sqrt(emax) : temp
     end
     canonicalT, S
 end
@@ -62,7 +62,3 @@ function canonical(
     tensor_lmul!(λ, A)
     tensor_decomp!(A, λ, n, renormalize=renormalize, bound=bound, tol=tol)
 end
-#---------------------------------------------------------------------------------------------------
-# Block decomposition
-#---------------------------------------------------------------------------------------------------
-

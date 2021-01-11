@@ -79,9 +79,9 @@ function dominent_eigen(
     mat::AbstractMatrix
 )
     vals, vecs = eigen(mat)
-    vals_abs = abs.(vals)
+    vals_abs = real.(vals)
     pos = argmax(vals_abs)
-    vals[pos], vecs[:, pos]
+    vals_abs[pos], vecs[:, pos]
 end
 #---------------------------------------------------------------------------------------------------
 export dominent_eigval
@@ -89,7 +89,7 @@ function dominent_eigval(
     mat::AbstractMatrix
 )
     vals = eigvals(mat)
-    maximum(abs.(vals))
+    maximum(real.(vals))
 end
 #---------------------------------------------------------------------------------------------------
 function dominent_eigvecs(
@@ -97,11 +97,11 @@ function dominent_eigvecs(
     tol::AbstractFloat=SORTTOL
 )
     vals, vecs = eigen(mat)
-    vals_abs = abs.(vals)
+    vals_abs = real.(vals)
     pos = argmax(vals_abs)
     right_vec = vecs[:,pos]
     left_vec = inv(vecs)[pos,:]
-    vals[pos], right_vec, left_vec
+    vals_abs[pos], right_vec, left_vec
 end
 #---------------------------------------------------------------------------------------------------
 export inner_product
