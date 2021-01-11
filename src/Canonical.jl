@@ -7,12 +7,14 @@ function matsqrt(mat::AbstractMatrix{<:Number})
     vecs * vals_sqrt
 end
 #---------------------------------------------------------------------------------------------------
-# Schmidt form
+# Canonical form
 #---------------------------------------------------------------------------------------------------
 export canonical
 function canonical(
     tensor::AbstractArray{<:Number,3};
-    renormalize::Bool=false
+    renormalize::Bool=false,
+    bound::Integer=BOUND,
+    tol::AbstractFloat=SVDTOL
 )
     eigmax, rvec, lvec = dominent_eigvecs(trm(tensor))
     X, Yt = begin
@@ -22,22 +24,31 @@ function canonical(
         matsqrt(rmat), transpose(matsqrt(lmat))
     end
     U, S, V = begin
-        res = svd(Y * X)
-        res.U, res.S, res.Vt
+        res = svd(Yt * X)
+        len = if bound==0 
+            sum(res.S .> tol)
+        else
+            min(sum(res.S .> tol), bound)
+        end
+        s = if renormalize
+            normalize(S[1:len])
+        else
+            S[1:len]
+        end
+        u = res.U[:, 1:len]
+        v = res.Vt[1:len, :]
+        u, s, v
     end
     canonicalT = begin
-        dS = Diagonal(S)
         lmat = V / X
-        rmat = Yt \ U
+        rmat = (Yt \ U) * Diagonal(S)
         ctype = promote_type(eltype(lmat), eltype(rmat), eltype(tensor))
         temp = Array{ctype}(undef, size(tensor))
-        @tensor temp[:] = lmat[-1,1] * tensor[1,-2,2] * rmat[2,3] * dS[3,-3]
+        @tensor temp[:] = lmat[-1,1] * tensor[1,-2,2] * rmat[2,-3]
         renormalize ? temp / sqrt(eigmax) : temp
     end
     canonicalT, S
 end
-#---------------------------------------------------------------------------------------------------
-# canonical form
 #---------------------------------------------------------------------------------------------------
 function canonical(
     Ts::AbstractVector{<:AbstractArray{<:Number, 3}};
@@ -52,8 +63,10 @@ function canonical(
     tensor_decomp!(A, λ, n, renormalize=renormalize, bound=bound, tol=tol)
 end
 #---------------------------------------------------------------------------------------------------
-function canonical(mps::iMPS)
-    Γ, n = mps.Γ, mps.n
-    Γ, λ = canonical(Γ)
-    iMPS(Γ, λ, n)
+# canonical form
+#---------------------------------------------------------------------------------------------------
+function block_decomp(
+    Γ::AbstractArray{<:Number,3}
+)
+    
 end

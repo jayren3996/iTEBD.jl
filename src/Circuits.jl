@@ -30,10 +30,42 @@ function tensor_umul(
     Γ_new
 end
 #---------------------------------------------------------------------------------------------------
+function tensor_group_2(
+    ΓA::AbstractArray{T, 3},
+    ΓB::AbstractArray{T, 3}
+) where T<:Number
+    α = size(ΓA, 1)
+    d = size(ΓA, 2)
+    β = size(ΓB, 3)
+    Γ_contracted = Array{T}(undef, α, d, d, β)
+    @tensor Γ_contracted[:] = ΓA[-1,-2,1] * ΓB[1,-3,-4]
+    reshape(Γ_contracted, α, :, β)
+end
+#---------------------------------------------------------------------------------------------------
+function tensor_group_3(
+    ΓA::AbstractArray{T, 3},
+    ΓB::AbstractArray{T, 3},
+    ΓC::AbstractArray{T, 3}
+) where T<:Number
+    α = size(ΓA, 1)
+    d = size(ΓA, 2)
+    β = size(ΓC, 3)
+    Γ_contracted = Array{T}(undef, α, d, d, d, β)
+    @tensor Γ_contracted[:] = ΓA[-1,-2,1] * ΓB[1,-3,2] * ΓC[2,-4,-5]
+    reshape(Γ_contracted, α, :, β)
+end
+#---------------------------------------------------------------------------------------------------
 function tensor_group(
     Γs::AbstractVector{<:AbstractArray{T, 3}}
 ) where T<:Number
     number = length(Γs)
+    if number == 2
+        return tensor_group_2(Γs[1], Γs[2])
+    elseif number == 3
+        return tensor_group_3(Γs[1], Γs[2], Γs[3])
+    end
+    α = size(Γs[1], 1)
+    β = size(Γs[number], 3)
     index = begin
         index_temp = [[i, -i-1, i+1] for i=1:number]
         index_temp[1][1] = -1
@@ -41,8 +73,6 @@ function tensor_group(
         index_temp
     end
     Γ_contracted = ncon(Γs, index)::Array{T, number+2}
-    α = size(Γs[1], 1)
-    β = size(Γs[number], 3)
     reshape(Γ_contracted, α, :, β)
 end
 #---------------------------------------------------------------------------------------------------
@@ -118,15 +148,4 @@ function applygate!(
     GΓΓ = tensor_umul(G, ΓΓ)
     tensor_decomp!(GΓΓ, λ, n, renormalize=renormalize, bound=bound, tol=tol)
 end
-#---------------------------------------------------------------------------------------------------
-function applygate!(
-    G::AbstractMatrix{<:Number},
-    mps::iMPS;
-    renormalize::Bool=false,
-    bound::Int64=BOUND,
-    tol::Float64=SVDTOL
-)
-    Γ, λ, n = mps.Γ, mps.λ, mps.n
-    Γ, λ = applygate!(G, Γ, λ[n], renormalize=renormalize, bound=bound, tol=tol)
-    iMPS(Γ, λ, n)
-end
+

@@ -29,3 +29,23 @@ function conj(mps::iMPS)
     Γ, λ, n = mps.Γ, mps.λ, mps.n
     iMPS(conj.(Γ), λ, n)
 end
+#---------------------------------------------------------------------------------------------------
+function canonical(mps::iMPS)
+    Γ, n = mps.Γ, mps.n
+    Γ, λ = canonical(Γ)
+    iMPS(Γ, λ, n)
+end
+#---------------------------------------------------------------------------------------------------
+function applygate!(
+    G::AbstractMatrix{<:Number},
+    mps::iMPS;
+    renormalize::Bool=false,
+    bound::Int64=BOUND,
+    tol::Float64=SVDTOL
+)
+    Γ, λ, n = mps.Γ, mps.λ, mps.n
+    Γ, λ = applygate!(G, Γ, λ[n], renormalize=renormalize, bound=bound, tol=tol)
+    iMPS(Γ, λ, n)
+end
+#---------------------------------------------------------------------------------------------------
+gtrm(mps1::iMPS, mps2::iMPS) = gtrm(mps1.Γ, mps2.Γ)
