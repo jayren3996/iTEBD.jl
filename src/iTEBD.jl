@@ -20,6 +20,6 @@ include("Core.jl")
 include("Canonical.jl")
 include("Spin.jl")
 include("TransferMatrix.jl")
-
+include("Block.jl")
 
 end # module iTEBD
