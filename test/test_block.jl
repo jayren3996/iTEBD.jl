@@ -1,5 +1,5 @@
 include("../src/iTEBD.jl")
-import .iTEBD: fixed_points, right_cannonical
+import .iTEBD: fixed_point, right_cannonical, block_canonical
 
 const aklt = begin
     aklt_tensor = zeros(4,3,4)
@@ -14,4 +14,4 @@ const aklt = begin
     aklt_tensor
 end
 
-res = right_cannonical(aklt)
+res = block_canonical(aklt)

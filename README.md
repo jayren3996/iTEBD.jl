@@ -122,6 +122,4 @@ Here we calculate the inner product of intermediate state and the exact AKLT gro
 
 In many cases, it is much simpler to work on the canonical form of MPS. Here, the canonical form is the right-canonical form. However, we keep track of the Schmidt values so that it can easily transformed to Schmidt canonical form.
 
-The canonical form is obtained using the function ```canonical(imps::iMPS)```.
-
-Up till now, this algorithm only work for the case where there is single dominent eigenvector in the transfer matrix.
+The canonical form is obtained using the function ```canonical(imps::iMPS)```. Note that this function only works when the transfer matrix has single fixed points. Otherwise we should first block diagonalized the tensor using the function ```block_canonical(Γ::AbstractArray{<:Number, 3})```.
