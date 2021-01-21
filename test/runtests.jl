@@ -1,27 +1,31 @@
 include("../src/iTEBD.jl")
-using .iTEBD
-#using iTEBD
 using Test
-#--- Test canonical
-const aklt = begin
-    aklt_tensor = zeros(2,3,2)
-    aklt_tensor[1,1,2] = +sqrt(2/3)
-    aklt_tensor[1,2,1] = -sqrt(1/3)
-    aklt_tensor[2,2,2] = +sqrt(1/3)
-    aklt_tensor[2,3,1] = -sqrt(2/3)
-    aklt_tensor
-    iMPS([aklt_tensor, aklt_tensor])
+using LinearAlgebra
+using TensorOperations
+#---------------------------------------------------------------------------------------------------
+# test basis quantum circuits
+#---------------------------------------------------------------------------------------------------
+import .iTEBD: tensor_lmul!, tensor_rmul!, tensor_umul, tensor_group, tensor_decomp, applygate!
+@testset "Basic Multiplication" begin
+    # generate random tensor and values
+    rand_tensor = rand(7, 5, 7)
+    rand_values = rand(7)
+    rand_val_diag = Diagonal(rand_values)
+    rand_mat = rand(5,5)
+    # calculate target values
+    @tensor lmul_target[:] := rand_val_diag[-1,1] * rand_tensor[1,-2,-3]
+    @tensor rmul_target[:] := rand_tensor[-1,-2,1] * rand_val_diag[1,-3]
+    @tensor umul_target[:] := rand_mat[-2,1] * rand_tensor[-1,1,-3]
+    # test result
+    tensor_lmul!(rand_values, rand_tensor)
+    @test rand_tensor ≈ lmul_target
+    tensor_rmul!(rand_tensor, rand_values)
+    @test rand_tensor ≈ rmul_target
+    rand_tensor = tensor_umul(rand_mat, rand_tensor)
+    @test rand_tensor ≈ umul_target
 end
 
-@testset "CanonicalForm" begin
-    aklt_canonical = canonical(aklt)
-    ov = inner_product(aklt, aklt_canonical)
-    @test ov ≈ 1.0
-    @test aklt_canonical.λ[1][1] ≈ 1/sqrt(2)
-    @test aklt_canonical.λ[2][2] ≈ 1/sqrt(2)
-    
-end
-
+import .iTEBD: spinmat, itebd, rand_iMPS
 @testset "iTEBD" begin
     dt = 0.1
     rdim = 50

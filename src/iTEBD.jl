@@ -5,7 +5,7 @@ module iTEBD
 const BOUND = 50
 const SVDTOL = 1e-7
 const SQRTTOL = 1e-5
-const SORTTOL = 1e-3
+const SORTTOL = 1e-5
 #---------------------------------------------------------------------------------------------------
 # INCLUDE
 #---------------------------------------------------------------------------------------------------
@@ -20,6 +20,5 @@ include("Core.jl")
 include("Canonical.jl")
 include("Spin.jl")
 include("TransferMatrix.jl")
-include("Block.jl")
 
 end # module iTEBD

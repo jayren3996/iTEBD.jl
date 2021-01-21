@@ -1,5 +1,9 @@
 #---------------------------------------------------------------------------------------------------
 # General transfer matrix
+# 
+# 2 ---A*-- 4
+#      |
+# 1 ---A--- 3
 #---------------------------------------------------------------------------------------------------
 function gtrm(
     T1::AbstractArray{<:Number, 3},
@@ -10,7 +14,7 @@ function gtrm(
     T1c = conj(T1)
     ctype = promote_type(eltype(T1c), eltype(T2))
     transfer_mat = Array{ctype, 4}(undef, i1, i2, k1, k2)
-    @tensor transfer_mat[:] = T1c[-1,1,-3] * T2[-2,1,-4]
+    @tensor transfer_mat[:] = T1c[-2,1,-4] * T2[-1,1,-3]
     reshape(transfer_mat, i1*i2, :)
 end
 #---------------------------------------------------------------------------------------------------
@@ -29,6 +33,12 @@ end
 trm(T) = gtrm(T, T)
 #---------------------------------------------------------------------------------------------------
 # Operator transfer matrix
+
+# 2 ---A*-- 4
+#      |
+#      O
+#      |
+# 1 ---A--- 3
 #---------------------------------------------------------------------------------------------------
 function otrm(
     T1::AbstractArray{<:Number, 3},
@@ -40,7 +50,7 @@ function otrm(
     T1c = conj(T1)
     ctype = promote_type(eltype(T1c), eltype(O), eltype(T2))
     transfer_mat = Array{ctype, 4}(undef, i1, i2, k1, k2)
-    @tensor transfer_mat[:] = T1c[-1,1,-3] * O[1,2] * T2[-2,2,-4]
+    @tensor transfer_mat[:] = T1c[-2,1,-4] * O[1,2] * T2[-1,2,-3]
     reshape(transfer_mat, i1*i2, :)
 end
 #---------------------------------------------------------------------------------------------------
@@ -86,10 +96,15 @@ end
 #---------------------------------------------------------------------------------------------------
 export dominent_eigval
 function dominent_eigval(
-    mat::AbstractMatrix
+    mat::AbstractMatrix;
+    sort="r"
 )
     vals = eigvals(mat)
-    maximum(real.(vals))
+    if sort == "r"
+        return maximum(real.(vals))
+    elseif sort == "a"
+        return maximum(abs.(vals))
+    end
 end
 #---------------------------------------------------------------------------------------------------
 function dominent_eigvecs(
@@ -105,8 +120,8 @@ function dominent_eigvecs(
 end
 #---------------------------------------------------------------------------------------------------
 export inner_product
-inner_product(T) = dominent_eigval(trm(T))
-inner_product(T1, T2) = dominent_eigval(gtrm(T1, T2))
+inner_product(T) = dominent_eigval(trm(T), sort="a")
+inner_product(T1, T2) = dominent_eigval(gtrm(T1, T2), sort="a")
 inner_product(T1, O, T2) = dominent_eigval(otrm(T1, O, T2))
 #---------------------------------------------------------------------------------------------------
 # Symmetry representation
