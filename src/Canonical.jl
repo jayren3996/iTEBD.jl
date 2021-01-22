@@ -1,13 +1,11 @@
 #---------------------------------------------------------------------------------------------------
-# Factorization
+# Canonical Form With No Degeneracy
 #---------------------------------------------------------------------------------------------------
 function matsqrt(mat::AbstractMatrix{<:Number})
-    vals, vecs = eigen(Hermitian(mat*mat'))
-    vals_sqrt = Diagonal(sqrt.(sqrt.(vals)))
+    vals, vecs = eigen(Hermitian(mat))
+    vals_sqrt = Diagonal(sqrt.(vals))
     vecs * vals_sqrt
 end
-#---------------------------------------------------------------------------------------------------
-# Canonical form
 #---------------------------------------------------------------------------------------------------
 export canonical
 function canonical(
@@ -16,7 +14,9 @@ function canonical(
     bound::Integer=BOUND,
     tol::AbstractFloat=SVDTOL
 )
-    emax, rvec, lvec = dominent_eigvecs(trm(tensor))
+    transfer_mat = trm(tensor)
+    emax, rvec = krylov_eigen(transfer_mat)
+    emax, lvec = krylov_eigen(transpose(transfer_mat))
     X, Yt = begin
         α, d, β = size(tensor)
         rmat = reshape(rvec, α, :)
@@ -62,37 +62,44 @@ function canonical(
     tensor_lmul!(λ, A)
     tensor_decomp!(A, λ, n, renormalize=renormalize, bound=bound, tol=tol)
 end
+
 #---------------------------------------------------------------------------------------------------
-# Block decomposition
+# Block Decomposition With Degeneracy
 #---------------------------------------------------------------------------------------------------
-hermitianize(mat::AbstractMatrix) = Hermitian( (1+1im) * mat + (1-1im) * mat' )
-function fixed_point(Γ::AbstractArray{<:Number, 3})
+function fixed_point(
+    Γ::AbstractArray{<:Number, 3};
+    tol::AbstractFloat=SVDTOL,
+    max_itr::Integer=10000
+)
     α = size(Γ, 1)
     trans_mat = trm(Γ)
-    vals, vecs = eigen(trans_mat)
-    pos = argmax(real.(vals))
-    fixed_point = vecs[:, pos]
-    fixed_point_mat = reshape(fixed_point, α, α)
-    hermitianize(fixed_point_mat)
+    val, vec = krylov_eigen(trans_mat, tol=tol, max_itr=max_itr)
+    val, Hermitian(reshape(vec, α, α))
 end
 #---------------------------------------------------------------------------------------------------
 function right_cannonical(
     Γ::AbstractArray{<:Number, 3};
     tol::AbstractFloat=SORTTOL
 )
-    fixed_mat = fixed_point(Γ)
+    Γnorm, fixed_mat = fixed_point(Γ)
+    if Γnorm < SORTTOL
+        #println("RC counter zero block")
+        return [(0.0, Γ)]
+    end
     vals, vecs = eigen(fixed_mat)
     pos = sum(vals .< tol)
-    if pos == length(vals)
-        vals *= -1
-        pos = sum(vals .> tol)
-    end
-    if pos == 0 || pos == length(vals)
-        X = vecs * Diagonal(sqrt.(vals))
-        Xi = inv(X)
+    #println("$pos / $(length(vals))")
+    if pos == 0
+        #println("RC jump out: $pos")
+        sqrtvals = sqrt.(vals)
+        X = vecs * Diagonal(sqrtvals)
+        Xi = Diagonal(1 ./ sqrtvals) * vecs'
         @tensor Γ_new[:] := Xi[-1,1] * Γ[1,-2,2] * X[2,-3]
-        return [Γ_new]
+        Γnorms = sqrt(Γnorm)
+        Γ_new /= Γnorms
+        return [(Γnorms, Γ_new)]
     else
+        #println("RC split: $pos / $(length(vals))")
         p1, p2 = vecs[:, 1:pos], vecs[:, pos+1:end]
         @tensor Γ1[:] := p1'[-1,1] * Γ[1,-2,2] * p1[2,-3]
         @tensor Γ2[:] := p2'[-1,1] * Γ[1,-2,2] * p2[2,-3]
@@ -100,24 +107,43 @@ function right_cannonical(
     end
 end
 #---------------------------------------------------------------------------------------------------
+hermitianize(mat) = Hermitian( (1+1im) * mat + (1-1im) * mat' )
 function block_decomp(
     Γ::AbstractArray{<:Number, 3};
     tol::AbstractFloat=SORTTOL
 )
     α = size(Γ, 1)
-    rvec = reshape(I(α) , α^2)
     trans_mat = trm(Γ)
-    trans_mat_i = trans_mat - (trans_mat * rvec) * rvec' / α
-    vals, vecs = eigen(trans_mat_i)
-    pos = argmin( abs.(vals .- 1) )
-    
-    if abs(vals[pos] - 1) > tol
+    vals, vecs = eigen(trans_mat)
+    pos = abs.(vals .- 1) .< tol 
+    vecs = vecs[:, pos]
+    #println("$(sum(pos)) / $(length(vals))")
+    if size(vecs, 2) == 1
+        #println("BD jump out: $(sum(pos))")
+        return [Γ]
+    elseif size(vecs, 2) == 0
+        #println("BD counter zero-block")
         return [Γ]
     else
-        fixed_mat = hermitianize(reshape(vecs[:, pos], α, α))
-        vals, vecs = eigen(fixed_mat)
+        #println("BD Start splitting: $(sum(pos)) / $(length(vals))")
+        fixed_mat_2 = begin
+            # check the dominent right vector.
+            mat_temp = hermitianize(reshape(vecs[:, 1], α, α))
+            id_mat = I(α) * mat_temp[1,1]
+            # if the eigen vector is close to identity, choose another one
+            if norm(id_mat - mat_temp) .< tol
+                println("Counter id mat, chage one.")
+                # Here I assume the second vector is good
+                # !!! THE NUMERICAL STABILITY IS NOT GUARANTEED !!!
+                mat_temp = hermitianize(reshape(vecs[:, 2], α, α))
+            end
+            mat_temp
+        end
+        vals, vecs = eigen(fixed_mat_2)
         pos = sum(maximum(vals) .- vals .< tol)
-        p1, p2 = vecs[:, 1:pos], vecs[:, pos+1:end]
+        #println("BD split: $pos / $(length(vals))")
+        # eigenvalues is from small to large
+        p1, p2 = vecs[:, 1:end-pos], vecs[:, end-pos+1:end]
         @tensor Γ1[:] := p1'[-1,1] * Γ[1,-2,2] * p1[2,-3]
         @tensor Γ2[:] := p2'[-1,1] * Γ[1,-2,2] * p2[2,-3]
         return vcat(block_decomp(Γ1, tol=tol), block_decomp(Γ2, tol=tol))
@@ -129,25 +155,14 @@ function block_canonical(
     tol::AbstractFloat=SORTTOL
 )
     Γs = right_cannonical(Γ)
-    vcat((block_decomp(Γi) for Γi in Γs)...)
-end
-
-function block_canonical(
-    Γs::AbstractVector{<:AbstractArray{<:Number, 3}};
-    bound::Integer=BOUND,
-    tol::AbstractFloat=SVDTOL
-)
-    n = length(Γs)
-    Γ = tensor_group(Γs)
-    Ts = block_canonical(Γ)
-    n_block = length(Ts)
-    ΓS = Vector{Vector{eltype(Ts[1])}}(undef, n_block)
-    ΛS = Vector{Vector{Int64}}(undef, n_block)
-    for i=1:n_block
-        T = Ts[i]
-        A, λ = canonical(T)
-        tensor_lmul!(λ, A)
-        ΓS[i], ΛS[i] = tensor_decomp!(A, λ, n, renormalize=renormalize, bound=bound, tol=tol)
+    norm_list = []
+    tensor_list = []
+    for Γi in Γs
+        normi = Γi[1]
+        Γis = block_decomp(Γi[2])
+        ni = length(Γis)
+        norm_list = vcat(norm_list, fill(normi, ni))
+        tensor_list = vcat(tensor_list, Γis)
     end
-    ΓS, ΛS
+    norm_list, tensor_list
 end

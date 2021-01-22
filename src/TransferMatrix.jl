@@ -9,8 +9,8 @@ function gtrm(
     T1::AbstractArray{<:Number, 3},
     T2::AbstractArray{<:Number, 3}
 )
-    i1, j1, k1 = size(T1)
-    i2, j2, k2 = size(T2)
+    i1, j1, k1 = size(T2)
+    i2, j2, k2 = size(T1)
     T1c = conj(T1)
     ctype = promote_type(eltype(T1c), eltype(T2))
     transfer_mat = Array{ctype, 4}(undef, i1, i2, k1, k2)
@@ -45,8 +45,8 @@ function otrm(
     O::AbstractMatrix{<:Number},
     T2::AbstractArray{<:Number, 3}
 )
-    i1, j1, k1 = size(T1)
-    i2, j2, k2 = size(T2)
+    i1, j1, k1 = size(T2)
+    i2, j2, k2 = size(T1)
     T1c = conj(T1)
     ctype = promote_type(eltype(T1c), eltype(O), eltype(T2))
     transfer_mat = Array{ctype, 4}(undef, i1, i2, k1, k2)
@@ -92,6 +92,31 @@ function dominent_eigen(
     vals_abs = real.(vals)
     pos = argmax(vals_abs)
     vals_abs[pos], vecs[:, pos]
+end
+# Using krylov iteration
+# The resulting dominent eigenvector for transfer matrix is always Hermitian and semi-positive.
+function krylov_eigen(
+    mat::AbstractMatrix;
+    tol::AbstractFloat=SVDTOL,
+    max_itr::Integer=10000
+)
+    α = round(Int64, sqrt(size(mat, 1)))
+    va = normalize(reshape(I(α), α^2))
+    vb = Array(mat * va)
+    val = norm(vb)
+    vb /= val
+    err = norm(va - vb)
+    va = vb
+    itr = 1
+    while err > tol && itr < max_itr
+        vb = mat * va
+        val = norm(vb)
+        vb /= val
+        err = norm(va - vb)
+        va = vb
+        itr += 1
+    end
+    val, vb
 end
 #---------------------------------------------------------------------------------------------------
 export dominent_eigval
