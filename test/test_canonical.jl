@@ -32,7 +32,7 @@ end
         b2 = isapprox(inner_product(res, target_2), 1.0, atol=1e-5)
         return [b1, b2]
     end
-    for i = 1:10
+    for i = 1:100
         # GHZ under random unitary rotation
         rand_U = exp( -1im * Hermitian( rand(2, 2) ) )
         @tensor GHZ_RU[:] := rand_U[-1,1] * GHZ[1,-2,2] * rand_U'[2,-3]
@@ -68,7 +68,7 @@ end
     double_aklt = zeros(4,3,4)
     double_aklt[1:2, :, 1:2] .= AKLT
     double_aklt[3:4, :, 3:4] .= AKLT
-    for i=1:10
+    for i=1:100
         # Double AKLT under random unitary rotation
         rand_U = exp( -1im * Hermitian( rand(4, 4) ) )
         @tensor double_aklt_RU[:] := rand_U[-1,1] * double_aklt[1,-2,2] * rand_U'[2,-3]
@@ -112,7 +112,7 @@ end
         out
     end
 
-    for i=1:10
+    for i=1:30
         # Stacks of AKLT, GHZ, 2×2 random block, and zero-block
         rand_tensor = rand(2,3,2)
         rand_tensor /= sqrt(inner_product(rand_tensor))
@@ -139,6 +139,7 @@ end
         @test any(test_list[4])
         @test any(test_list[5])
         @test sum(test_list) == [1, 1, 1, 1, 1]
+
     end
 end
 

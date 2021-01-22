@@ -1,96 +1,97 @@
 #---------------------------------------------------------------------------------------------------
-# Canonical Form With No Degeneracy
+# Dominent eigensystem
+#
+# Dominent eigen system
+# Krylov method ensure Hermitian and semi-positive.
 #---------------------------------------------------------------------------------------------------
-function matsqrt(mat::AbstractMatrix{<:Number})
-    vals, vecs = eigen(Hermitian(mat))
-    vals_sqrt = Diagonal(sqrt.(vals))
-    vecs * vals_sqrt
+function dominent_eigen(mat::AbstractMatrix)
+    vals, vecs = eigen(mat)
+    vals_abs = real.(vals)
+    pos = argmax(vals_abs)
+    vals_abs[pos], vecs[:, pos]
 end
 #---------------------------------------------------------------------------------------------------
-export canonical
-function canonical(
-    tensor::AbstractArray{<:Number,3};
-    renormalize::Bool=false,
-    bound::Integer=BOUND,
-    tol::AbstractFloat=SVDTOL
+function krylov_eigen(
+    mat::AbstractMatrix;
+    tol::AbstractFloat=1e-8,
+    max_itr::Integer=100000
 )
-    transfer_mat = trm(tensor)
-    emax, rvec = krylov_eigen(transfer_mat)
-    emax, lvec = krylov_eigen(transpose(transfer_mat))
-    X, Yt = begin
-        α, d, β = size(tensor)
-        rmat = reshape(rvec, α, :)
-        lmat = reshape(lvec, β, :)
-        matsqrt(rmat), transpose(matsqrt(lmat))
-    end
-    U, S, V = begin
-        res = svd(Yt * X)
-        len = if bound==0 
-            sum(res.S .> tol)
-        else
-            min(sum(res.S .> tol), bound)
+    """
+    Using krylov iteration
+    The resulting dominent eigenvector for transfer matrix is always Hermitian and semi-positive.
+    
+    tol     : tolerace for norm deference.
+    max_itr : maximal nuber of terations.
+    """
+    α = round(Int64, sqrt(size(mat, 1)))
+    va = normalize(reshape(I(α), α^2))
+    # convert the sparse vector into noral vector
+    vb = Array(normalize(mat * va))
+    err = norm(va - vb)
+    va = vb
+    itr = 1
+    while err > tol
+        vb = normalize(mat * va)
+        err = norm(va - vb)
+        va = vb
+        itr += 1
+        # print a warning string and exit the loop if maximal iteration times is reached.
+        if itr > max_itr
+            println("Krylov method failed to converge within maximum number of iterations.")
+            println("eigval = $(norm(mat * va)), error = $err")
+            break;
         end
-        s = if renormalize
-            normalize(res.S[1:len])
-        else
-            res.S[1:len]
-        end
-        u = res.U[:, 1:len]
-        v = res.Vt[1:len, :]
-        u, s, v
     end
-    canonicalT = begin
-        lmat = V / X
-        rmat = (Yt \ U) * Diagonal(S)
-        ctype = promote_type(eltype(lmat), eltype(rmat), eltype(tensor))
-        temp = Array{ctype}(undef, size(tensor))
-        @tensor temp[:] = lmat[-1,1] * tensor[1,-2,2] * rmat[2,-3]
-        renormalize ? temp / sqrt(emax) : temp
-    end
-    canonicalT, S
+    val = norm(mat * va)
+    val, vb
 end
 #---------------------------------------------------------------------------------------------------
-function canonical(
-    Ts::AbstractVector{<:AbstractArray{<:Number, 3}};
-    renormalize::Bool=false,
-    bound::Integer=BOUND,
-    tol::AbstractFloat=SVDTOL
-)
-    n = length(Ts)
-    T = tensor_group(Ts)
-    A, λ = canonical(T, renormalize=renormalize, bound=bound, tol=tol)
-    tensor_lmul!(λ, A)
-    tensor_decomp!(A, λ, n, renormalize=renormalize, bound=bound, tol=tol)
+function dominent_eigval(mat::AbstractMatrix; sort="a")
+    vals = eigvals(mat)
+    if sort == "r"
+        return maximum(real.(vals))
+    elseif sort == "a"
+        return maximum(abs.(vals))
+    end
 end
 
-#---------------------------------------------------------------------------------------------------
-# Block Decomposition With Degeneracy
+# inner product
+export inner_product
+inner_product(T) = dominent_eigval(trm(T))
+inner_product(T1, T2) = dominent_eigval(gtrm(T1, T2))
 #---------------------------------------------------------------------------------------------------
 function fixed_point(
     Γ::AbstractArray{<:Number, 3};
     tol::AbstractFloat=SVDTOL,
-    max_itr::Integer=10000
+    max_itr::Integer=100000
 )
     α = size(Γ, 1)
     trans_mat = trm(Γ)
     val, vec = krylov_eigen(trans_mat, tol=tol, max_itr=max_itr)
     val, Hermitian(reshape(vec, α, α))
 end
+
+#---------------------------------------------------------------------------------------------------
+# Right Canonical Form
+#
+# - The algorithm will tensor that is right-normalized.
+# - If a degeneracy is encuntered, there would be multiple outputs.
+# - While it is NOT guaranteed that the outputs are non-degenerate.
 #---------------------------------------------------------------------------------------------------
 function right_cannonical(
     Γ::AbstractArray{<:Number, 3};
     tol::AbstractFloat=SORTTOL
 )
     Γnorm, fixed_mat = fixed_point(Γ)
-    if Γnorm < SORTTOL
-        #println("RC counter zero block")
+    if Γnorm < tol
+        # Zero block
         return [(0.0, Γ)]
     end
     vals, vecs = eigen(fixed_mat)
+    # dimension of null space
     pos = sum(vals .< tol)
-    #println("$pos / $(length(vals))")
     if pos == 0
-        #println("RC jump out: $pos")
+        # fixed-mat is invertible
         sqrtvals = sqrt.(vals)
         X = vecs * Diagonal(sqrtvals)
         Xi = Diagonal(1 ./ sqrtvals) * vecs'
@@ -99,56 +100,70 @@ function right_cannonical(
         Γ_new /= Γnorms
         return [(Γnorms, Γ_new)]
     else
-        #println("RC split: $pos / $(length(vals))")
-        p1, p2 = vecs[:, 1:pos], vecs[:, pos+1:end]
+        # contain null space, split the tensor
+        p1, p2 = vecs[:, pos+1:end], vecs[:, 1:pos]
         @tensor Γ1[:] := p1'[-1,1] * Γ[1,-2,2] * p1[2,-3]
         @tensor Γ2[:] := p2'[-1,1] * Γ[1,-2,2] * p2[2,-3]
+        # recurence
         return vcat(right_cannonical(Γ1, tol=tol), right_cannonical(Γ2, tol=tol))
     end
 end
+
 #---------------------------------------------------------------------------------------------------
-hermitianize(mat) = Hermitian( (1+1im) * mat + (1-1im) * mat' )
+# Block Decomposition
+
+# - This agorithm further decompose the right-renormalized tensor into right-renormalized tensors.
+# - This algorithm ensure the outputs are non-degenerate.
+#---------------------------------------------------------------------------------------------------
 function block_decomp(
     Γ::AbstractArray{<:Number, 3};
-    tol::AbstractFloat=SORTTOL
+    tol::AbstractFloat=1e-3
 )
     α = size(Γ, 1)
-    trans_mat = trm(Γ)
-    vals, vecs = eigen(trans_mat)
-    pos = abs.(vals .- 1) .< tol 
-    vecs = vecs[:, pos]
-    #println("$(sum(pos)) / $(length(vals))")
-    if size(vecs, 2) == 1
-        #println("BD jump out: $(sum(pos))")
-        return [Γ]
-    elseif size(vecs, 2) == 0
-        #println("BD counter zero-block")
-        return [Γ]
-    else
-        #println("BD Start splitting: $(sum(pos)) / $(length(vals))")
-        fixed_mat_2 = begin
-            # check the dominent right vector.
-            mat_temp = hermitianize(reshape(vecs[:, 1], α, α))
-            id_mat = I(α) * mat_temp[1,1]
-            # if the eigen vector is close to identity, choose another one
-            if norm(id_mat - mat_temp) .< tol
-                println("Counter id mat, chage one.")
-                # Here I assume the second vector is good
-                # !!! THE NUMERICAL STABILITY IS NOT GUARANTEED !!!
-                mat_temp = hermitianize(reshape(vecs[:, 2], α, α))
-            end
-            mat_temp
-        end
-        vals, vecs = eigen(fixed_mat_2)
-        pos = sum(maximum(vals) .- vals .< tol)
-        #println("BD split: $pos / $(length(vals))")
-        # eigenvalues is from small to large
-        p1, p2 = vecs[:, 1:end-pos], vecs[:, end-pos+1:end]
-        @tensor Γ1[:] := p1'[-1,1] * Γ[1,-2,2] * p1[2,-3]
-        @tensor Γ2[:] := p2'[-1,1] * Γ[1,-2,2] * p2[2,-3]
-        return vcat(block_decomp(Γ1, tol=tol), block_decomp(Γ2, tol=tol))
+    # compute eigen vectors with eigenvalue 1.
+    vecs = begin
+        trans_mat = trm(Γ)
+        trm_vals, trm_vecs = eigen(trans_mat)
+        pos = abs.(trm_vals .- 1) .< tol 
+        trm_vecs[:, pos]
     end
+    # Non-degenerate case:
+    if size(vecs, 2) < 2
+        return [Γ]
+    end
+    # Degenerate:
+    fixed_mat_2 = begin
+        # check the dominent right vector.
+        eigen_mat = reshape(vecs[:, 1], α, α)
+        mat_temp = (1+1im) * eigen_mat + (1-1im) * eigen_mat'
+        id_mat = I(α) * mat_temp[1,1]
+        if norm(id_mat - mat_temp) .< tol
+            # The first eigen matrix is identity.
+            # Here I assume in this case the second eigen matrix is good.
+            # !!! THE NUMERICAL STABILITY IS NOT GUARANTEED !!!
+            println("Counter identity")
+            eigen_mat = reshape(vecs[:, 2], α, α)
+            mat_temp = (1+1im) * eigen_mat + (1-1im) * eigen_mat'
+            if norm(id_mat - mat_temp) .> tol
+                println("OK then")
+            else
+                println("Get trouble!!!")
+            end
+        end
+        Hermitian(mat_temp)
+    end
+    # Split the space.
+    # The null space is spanned by the dominent eigen vector of fixed_mat_2
+    vals, vecs = eigen(fixed_mat_2)
+    pos = sum(maximum(vals) .- vals .< tol)
+    # eigenvalues is from small to large
+    p1, p2 = vecs[:, 1:end-pos], vecs[:, end-pos+1:end]
+    @tensor Γ1[:] := p1'[-1,1] * Γ[1,-2,2] * p1[2,-3]
+    @tensor Γ2[:] := p2'[-1,1] * Γ[1,-2,2] * p2[2,-3]
+    # recurence
+    vcat(block_decomp(Γ1, tol=tol), block_decomp(Γ2, tol=tol))
 end
+
 #---------------------------------------------------------------------------------------------------
 function block_canonical(
     Γ::AbstractArray{<:Number, 3};
@@ -165,4 +180,63 @@ function block_canonical(
         tensor_list = vcat(tensor_list, Γis)
     end
     norm_list, tensor_list
+end
+
+#---------------------------------------------------------------------------------------------------
+# Schmidt Canonical Form
+#
+# - Given a right canonical form, return a Schmidt canonical form.
+# - This algorithm assume there is no degeneracy.
+#---------------------------------------------------------------------------------------------------
+function schmidt_canonical(
+    Γ::AbstractArray{<:Number,3};
+    renormalize::Bool=false,
+    bound::Integer=BOUND,
+    tol::AbstractFloat=SVDTOL
+)
+    α = size(Γ, 1)
+    lmat = begin
+        trans_mat_T = transpose(trm(Γ))
+        emax, lvec = krylov_eigen(trans_mat_T)
+        reshape(lvec, α, :)
+    end
+    Yt = begin
+        vals, vecs = eigen(Hermitian(lmat))
+        Diagonal(sqrt.(vals)) * transpose(vecs)
+    end
+    U, S, V = begin
+        res = svd(Yt)
+        len = if bound==0 
+            sum(res.S .> tol)
+        else
+            min(sum(res.S .> tol), bound)
+        end
+        s = if renormalize
+            normalize(res.S[1:len])
+        else
+            res.S[1:len]
+        end
+        u = res.U[:, 1:len]
+        v = res.Vt[1:len, :]
+        u, s, v
+    end
+    @tensor Γ_new[:] := V[-1,1] * Γ[1,-2,2] * V'[2, -3]
+    Γ_new, S
+end
+
+#---------------------------------------------------------------------------------------------------
+# Non-degenerate case
+#---------------------------------------------------------------------------------------------------
+export canonical
+function canonical(
+    Ts::AbstractVector{<:AbstractArray{<:Number, 3}};
+    renormalize::Bool=false,
+    bound::Integer=BOUND,
+    tol::AbstractFloat=SVDTOL
+)
+    n = length(Ts)
+    T = tensor_group(Ts)
+    A, λ = schmidt_canonical(T, renormalize=renormalize, bound=bound, tol=tol)
+    tensor_lmul!(λ, A)
+    tensor_decomp!(A, λ, n, renormalize=renormalize, bound=bound, tol=tol)
 end
