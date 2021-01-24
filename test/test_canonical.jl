@@ -2,7 +2,9 @@ include("../src/iTEBD.jl")
 using Test
 using LinearAlgebra
 using TensorOperations
+import .iTEBD: trm
 import .iTEBD: fixed_point, canonical, block_canonical, inner_product
+import .iTEBD: right_cannonical, schmidt_canonical
 #---------------------------------------------------------------------------------------------------
 # test basis quantum circuits
 #---------------------------------------------------------------------------------------------------
@@ -91,55 +93,6 @@ end
         @test nres[2] ≈ 1.0 atol = 1e-5
         @test inner_product(AKLT, tres[1]) ≈ 1.0 atol=1e-5
         @test inner_product(AKLT, tres[2]) ≈ 1.0 atol=1e-5
-    end
-end
-
-@testset "Complex Stacks" begin
-    # GHZ target
-    target_1 = zeros(1,3,1)
-    target_1[1,1,1] = 1
-    target_2 = zeros(1,3,1)
-    target_2[1,3,1] = 1
-
-    function test_res(res, rt)
-        out = zeros(Bool, 5)
-        out[1] = isapprox(inner_product(res, AKLT), 1.0, atol=1e-5)
-        out[2] = isapprox(inner_product(res, target_1), 1.0, atol=1e-5)
-        out[3] = isapprox(inner_product(res, target_2), 1.0, atol=1e-5)
-        out[4] = isapprox(inner_product(res, rt), 1.0, atol=1e-5)
-        out[5] = isapprox(norm(res), 0.0, atol=1e-5)
-        #println(out)
-        out
-    end
-
-    for i=1:30
-        # Stacks of AKLT, GHZ, 2×2 random block, and zero-block
-        rand_tensor = rand(2,3,2)
-        rand_tensor /= sqrt(inner_product(rand_tensor))
-        stack = zeros(8,3,8)
-        stack[1:2, :, 1:2] .= AKLT 
-        stack[3, 1, 3] = 1
-        stack[4, 3, 4] = 1
-        stack[5:6, :, 5:6] .= rand_tensor
-        
-        # Under non-unitary rotation
-        rand_V = rand(8,8)
-        rand_Vi = inv(rand_V)
-        @tensor stack_RV[:] := rand_V[-1,1] * stack[1,-2,2] * rand_Vi[2,-3]
-
-        # results
-        nres, tres = block_canonical(stack_RV)
-        @test length(nres) == 5
-        @test length(tres) == 5
-
-        test_list = [test_res(tresi, rand_tensor) for tresi in tres]
-        @test any(test_list[1])
-        @test any(test_list[2])
-        @test any(test_list[3])
-        @test any(test_list[4])
-        @test any(test_list[5])
-        @test sum(test_list) == [1, 1, 1, 1, 1]
-
     end
 end
 

@@ -11,41 +11,6 @@ function dominent_eigen(mat::AbstractMatrix)
     vals_abs[pos], vecs[:, pos]
 end
 #---------------------------------------------------------------------------------------------------
-function krylov_eigen(
-    mat::AbstractMatrix;
-    tol::AbstractFloat=1e-8,
-    max_itr::Integer=100000
-)
-    """
-    Using krylov iteration
-    The resulting dominent eigenvector for transfer matrix is always Hermitian and semi-positive.
-    
-    tol     : tolerace for norm deference.
-    max_itr : maximal nuber of terations.
-    """
-    α = round(Int64, sqrt(size(mat, 1)))
-    va = normalize(reshape(I(α), α^2))
-    # convert the sparse vector into noral vector
-    vb = Array(normalize(mat * va))
-    err = norm(va - vb)
-    va = vb
-    itr = 1
-    while err > tol
-        vb = normalize(mat * va)
-        err = norm(va - vb)
-        va = vb
-        itr += 1
-        # print a warning string and exit the loop if maximal iteration times is reached.
-        if itr > max_itr
-            println("Krylov method failed to converge within maximum number of iterations.")
-            println("eigval = $(norm(mat * va)), error = $err")
-            break;
-        end
-    end
-    val = norm(mat * va)
-    val, vb
-end
-#---------------------------------------------------------------------------------------------------
 function dominent_eigval(mat::AbstractMatrix; sort="a")
     vals = eigvals(mat)
     if sort == "r"
@@ -60,10 +25,53 @@ export inner_product
 inner_product(T) = dominent_eigval(trm(T))
 inner_product(T1, T2) = dominent_eigval(gtrm(T1, T2))
 #---------------------------------------------------------------------------------------------------
+function krylov_eigen(
+    mat::AbstractMatrix;
+    tol::AbstractFloat=1e-7,
+    max_itr::Integer=1000
+)
+    """
+    Using krylov iteration
+    The resulting dominent eigenvector for transfer matrix is always Hermitian and semi-positive.
+    
+    tol     : tolerace for norm deference.
+    max_itr : maximal nuber of terations.
+    """
+    α = round(Int64, sqrt(size(mat, 1)))
+    expmat = exp(mat)
+    va = begin
+        diag_vect = Array(reshape(I(α), α^2))
+        normalize(expmat * diag_vect)
+    end
+    vb = normalize(expmat * va)
+    vc = va - vb
+    err = norm(vc)
+    itr = 1
+    while err > tol
+        mul!(va, expmat, vb)
+        normalize!(va)
+        mul!(vb, expmat, va)
+        normalize!(vb)
+        @. vc = va - vb
+        err = norm(vc)
+        itr += 1
+        # print a warning string and exit the loop if maximal iteration times is reached.
+        if itr > max_itr
+            vals = eigvals(mat)
+            println("Krylov method failed to converge within maximum number of iterations.")
+            println("eigval = $(norm(mat * va)) / $(norm(va)), error = $err")
+            break;
+        end
+    end
+    mul!(va, mat, vb)
+    val = norm(va)
+    val, vb
+end
+#---------------------------------------------------------------------------------------------------
 function fixed_point(
     Γ::AbstractArray{<:Number, 3};
-    tol::AbstractFloat=SVDTOL,
-    max_itr::Integer=100000
+    tol::AbstractFloat=1e-7,
+    max_itr::Integer=1000
 )
     α = size(Γ, 1)
     trans_mat = trm(Γ)
@@ -80,7 +88,7 @@ end
 #---------------------------------------------------------------------------------------------------
 function right_cannonical(
     Γ::AbstractArray{<:Number, 3};
-    tol::AbstractFloat=SORTTOL
+    tol::AbstractFloat=1e-20
 )
     Γnorm, fixed_mat = fixed_point(Γ)
     if Γnorm < tol
@@ -97,7 +105,7 @@ function right_cannonical(
         Xi = Diagonal(1 ./ sqrtvals) * vecs'
         @tensor Γ_new[:] := Xi[-1,1] * Γ[1,-2,2] * X[2,-3]
         Γnorms = sqrt(Γnorm)
-        Γ_new /= Γnorms
+        Γ_new ./= sqrt(inner_product(Γ_new))
         return [(Γnorms, Γ_new)]
     else
         # contain null space, split the tensor
@@ -115,9 +123,41 @@ end
 # - This agorithm further decompose the right-renormalized tensor into right-renormalized tensors.
 # - This algorithm ensure the outputs are non-degenerate.
 #---------------------------------------------------------------------------------------------------
+function block_split(
+    Γ::AbstractArray{<:Number, 3},
+    vecs::AbstractArray{<:Number, 2};
+    tol::AbstractFloat=1e-5
+)
+    α = size(Γ, 1)
+    fixed_mat = begin
+        # check the dominent right vector.
+        eigen_mat = reshape(vecs[:, 1], α, α)
+        mat_temp = (1+1im) * eigen_mat + (1-1im) * eigen_mat'
+        id_mat = I(α) * mat_temp[1,1]
+        if norm(id_mat - mat_temp) < tol
+            # The first eigen matrix is identity.
+            # Here I assume in this case the second eigen matrix is good.
+            eigen_mat = reshape(vecs[:, 2], α, α)
+            mat_temp = (1+1im) * eigen_mat + (1-1im) * eigen_mat'
+            id_mat = I(α) * mat_temp[1,1]
+            @assert norm(id_mat - mat_temp) > tol "Second identity. Get trouble!!!"
+        end
+        Hermitian(mat_temp)
+    end
+    # Split the space.
+    # The null space is spanned by the dominent eigen vector of fixed_mat_2
+    vals, vecs = eigen(fixed_mat)
+    pos = sum(maximum(vals) .- vals .< tol)
+    # eigenvalues is from small to large
+    p1, p2 = vecs[:, 1:end-pos], vecs[:, end-pos+1:end]
+    @tensor Γ1[:] := p1'[-1,1] * Γ[1,-2,2] * p1[2,-3]
+    @tensor Γ2[:] := p2'[-1,1] * Γ[1,-2,2] * p2[2,-3]
+    Γ1, Γ2
+end
+#---------------------------------------------------------------------------------------------------
 function block_decomp(
     Γ::AbstractArray{<:Number, 3};
-    tol::AbstractFloat=1e-3
+    tol::AbstractFloat=1e-5
 )
     α = size(Γ, 1)
     # compute eigen vectors with eigenvalue 1.
@@ -132,43 +172,14 @@ function block_decomp(
         return [Γ]
     end
     # Degenerate:
-    fixed_mat_2 = begin
-        # check the dominent right vector.
-        eigen_mat = reshape(vecs[:, 1], α, α)
-        mat_temp = (1+1im) * eigen_mat + (1-1im) * eigen_mat'
-        id_mat = I(α) * mat_temp[1,1]
-        if norm(id_mat - mat_temp) .< tol
-            # The first eigen matrix is identity.
-            # Here I assume in this case the second eigen matrix is good.
-            # !!! THE NUMERICAL STABILITY IS NOT GUARANTEED !!!
-            println("Counter identity")
-            eigen_mat = reshape(vecs[:, 2], α, α)
-            mat_temp = (1+1im) * eigen_mat + (1-1im) * eigen_mat'
-            if norm(id_mat - mat_temp) .> tol
-                println("OK then")
-            else
-                println("Get trouble!!!")
-            end
-        end
-        Hermitian(mat_temp)
-    end
-    # Split the space.
-    # The null space is spanned by the dominent eigen vector of fixed_mat_2
-    vals, vecs = eigen(fixed_mat_2)
-    pos = sum(maximum(vals) .- vals .< tol)
-    # eigenvalues is from small to large
-    p1, p2 = vecs[:, 1:end-pos], vecs[:, end-pos+1:end]
-    @tensor Γ1[:] := p1'[-1,1] * Γ[1,-2,2] * p1[2,-3]
-    @tensor Γ2[:] := p2'[-1,1] * Γ[1,-2,2] * p2[2,-3]
-    # recurence
-    vcat(block_decomp(Γ1, tol=tol), block_decomp(Γ2, tol=tol))
+    Γ1, Γ2 = block_split(Γ, vecs, tol=tol)
+    Γ1c = block_decomp(Γ1)
+    Γ2c = block_decomp(Γ2)
+    return [Γ1c; Γ2c]
 end
-
 #---------------------------------------------------------------------------------------------------
-function block_canonical(
-    Γ::AbstractArray{<:Number, 3};
-    tol::AbstractFloat=SORTTOL
-)
+export block_canonical
+function block_canonical(Γ::AbstractArray{<:Number, 3})
     Γs = right_cannonical(Γ)
     norm_list = []
     tensor_list = []
@@ -230,13 +241,16 @@ end
 export canonical
 function canonical(
     Ts::AbstractVector{<:AbstractArray{<:Number, 3}};
-    renormalize::Bool=false,
     bound::Integer=BOUND,
     tol::AbstractFloat=SVDTOL
 )
     n = length(Ts)
     T = tensor_group(Ts)
-    A, λ = schmidt_canonical(T, renormalize=renormalize, bound=bound, tol=tol)
+    nres, tres = block_canonical(T)
+    if length(nres) > 1 
+        println("Multiple block, keep first one.") 
+    end
+    A, λ = schmidt_canonical(tres[1], renormalize=true, bound=bound, tol=tol)
     tensor_lmul!(λ, A)
     tensor_decomp!(A, λ, n, renormalize=renormalize, bound=bound, tol=tol)
 end

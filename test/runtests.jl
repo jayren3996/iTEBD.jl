@@ -5,7 +5,8 @@ using TensorOperations
 #---------------------------------------------------------------------------------------------------
 # test basis quantum circuits
 #---------------------------------------------------------------------------------------------------
-import .iTEBD: tensor_lmul!, tensor_rmul!, tensor_umul, tensor_group, tensor_decomp, applygate!
+import .iTEBD: tensor_lmul!, tensor_rmul!, tensor_umul, tensor_group, applygate!
+#=
 @testset "Basic Multiplication" begin
     # generate random tensor and values
     rand_tensor = rand(7, 5, 7)
@@ -24,8 +25,17 @@ import .iTEBD: tensor_lmul!, tensor_rmul!, tensor_umul, tensor_group, tensor_dec
     rand_tensor = tensor_umul(rand_mat, rand_tensor)
     @test rand_tensor ≈ umul_target
 end
+=#
+import .iTEBD: spinmat, itebd, rand_iMPS, inner_product, iMPS
 
-import .iTEBD: spinmat, itebd, rand_iMPS
+const AKLT = begin
+    tensor = zeros(2,3,2)
+    tensor[1,1,2] = +sqrt(2/3)
+    tensor[1,2,1] = -sqrt(1/3)
+    tensor[2,2,2] = +sqrt(1/3)
+    tensor[2,3,1] = -sqrt(2/3)
+    iMPS([tensor, tensor])
+end
 @testset "iTEBD" begin
     dt = 0.1
     rdim = 50
@@ -39,7 +49,7 @@ import .iTEBD: spinmat, itebd, rand_iMPS
     @time for i=1:1000
         mps = sys(mps)
     end
-    @test inner_product(mps, aklt) ≈ 1.0 atol=1e-5
+    @test inner_product(mps, AKLT) ≈ 1.0 atol=1e-5
 end
 
 
