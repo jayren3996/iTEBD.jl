@@ -2,41 +2,36 @@ include("../src/iTEBD.jl")
 using Test
 using LinearAlgebra
 using TensorOperations
+using .iTEBD
 #---------------------------------------------------------------------------------------------------
-# test basis quantum circuits
+# Constant Objects
 #---------------------------------------------------------------------------------------------------
-import .iTEBD: tensor_lmul!, tensor_rmul!, tensor_umul, tensor_group, applygate!
-#=
-@testset "Basic Multiplication" begin
-    # generate random tensor and values
-    rand_tensor = rand(7, 5, 7)
-    rand_values = rand(7)
-    rand_val_diag = Diagonal(rand_values)
-    rand_mat = rand(5,5)
-    # calculate target values
-    @tensor lmul_target[:] := rand_val_diag[-1,1] * rand_tensor[1,-2,-3]
-    @tensor rmul_target[:] := rand_tensor[-1,-2,1] * rand_val_diag[1,-3]
-    @tensor umul_target[:] := rand_mat[-2,1] * rand_tensor[-1,1,-3]
-    # test result
-    tensor_lmul!(rand_values, rand_tensor)
-    @test rand_tensor ≈ lmul_target
-    tensor_rmul!(rand_tensor, rand_values)
-    @test rand_tensor ≈ rmul_target
-    rand_tensor = tensor_umul(rand_mat, rand_tensor)
-    @test rand_tensor ≈ umul_target
-end
-=#
-import .iTEBD: spinmat, itebd, rand_iMPS, inner_product, iMPS
-
 const AKLT = begin
     tensor = zeros(2,3,2)
     tensor[1,1,2] = +sqrt(2/3)
     tensor[1,2,1] = -sqrt(1/3)
     tensor[2,2,2] = +sqrt(1/3)
     tensor[2,3,1] = -sqrt(2/3)
-    iMPS([tensor, tensor])
+    tensor
 end
-@testset "iTEBD" begin
+
+const AKLT_MPS = iMPS([AKLT, AKLT])
+const AKLT_MPS_3 = iMPS([AKLT, AKLT, AKLT])
+
+const GHZ = begin
+    tensor = zeros(2,2,2)
+    tensor[1,1,1] = 1
+    tensor[2,2,2] = 1
+    tensor
+end
+#---------------------------------------------------------------------------------------------------
+# Test imaginary-time iTEBD 
+#
+# 1. Imaginary-time evolving under AKLT Hamiltonian.
+# 2. The ourcome is compared to AKLT MPS.
+#---------------------------------------------------------------------------------------------------
+import .iTEBD: spinmat
+@testset "AKLT_iTEBD" begin
     dt = 0.1
     rdim = 50
     H = begin
@@ -49,9 +44,110 @@ end
     @time for i=1:1000
         mps = sys(mps)
     end
-    @test inner_product(mps, AKLT) ≈ 1.0 atol=1e-5
+    @test size(mps.Γ[1]) == (2, 3, 2)
+    @test size(mps.Γ[2]) == (2, 3, 2)
+    @test mps.λ[1] ≈ [1/sqrt(2), 1/sqrt(2)] atol=1e-5
+    @test mps.λ[2] ≈ [1/sqrt(2), 1/sqrt(2)] atol=1e-5
+    @test inner_product(mps, AKLT_MPS) ≈ 1.0 atol=1e-5
+end
+#---------------------------------------------------------------------------------------------------
+@testset "AKLT_iTEBD_3" begin
+    dt = 0.1
+    rdim = 50
+    H = begin
+        ss = spinmat("xx",3) + spinmat("yy",3) + spinmat("zz",3)
+        p2 = ss + 1/3*ss^2 + 2/3*I(9)
+        kron(p2, I(3)) + kron(I(3), p2)
+    end
+    sys = itebd(H, dt, mode="i", bound=rdim)
+    mps = rand_iMPS(3, 3, rdim)
+    # Best: 0.85s
+    @time for i=1:1000
+        mps = sys(mps)
+    end
+    mps = canonical(mps, trim=true, bound= rdim)
+    @test size(mps.Γ[1]) == (2, 3, 2)
+    @test size(mps.Γ[2]) == (2, 3, 2)
+    @test size(mps.Γ[3]) == (2, 3, 2)
+    @test mps.λ[1] ≈ [1/sqrt(2), 1/sqrt(2)] atol=1e-5
+    @test mps.λ[2] ≈ [1/sqrt(2), 1/sqrt(2)] atol=1e-5
+    @test mps.λ[3] ≈ [1/sqrt(2), 1/sqrt(2)] atol=1e-5
+    @test inner_product(mps, AKLT_MPS_3) ≈ 1.0 atol=1e-5
 end
 
+#---------------------------------------------------------------------------------------------------
+# Test Block-canonical
+#---------------------------------------------------------------------------------------------------
+@testset "GHZ State" begin
+    target_1 = zeros(1,2,1)
+    target_1[1,1,1] = 1
+    target_2 = zeros(1,2,1)
+    target_2[1,2,1] = 1
+    function checkres(res)
+        b1 = isapprox(inner_product(res, target_1), 1.0, atol=1e-5)
+        b2 = isapprox(inner_product(res, target_2), 1.0, atol=1e-5)
+        return [b1, b2]
+    end
+    for i = 1:100
+        # GHZ under random unitary rotation
+        rand_U = exp( -1im * Hermitian( rand(2, 2) ) )
+        @tensor GHZ_RU[:] := rand_U[-1,1] * GHZ[1,-2,2] * rand_U'[2,-3]
+        nres, tres = block_canonical(GHZ_RU)
+        @test length(nres) == 2
+        @test length(tres) == 2
+        @test nres[1] ≈ 1.0 atol = 1e-5
+        @test nres[2] ≈ 1.0 atol = 1e-5
+        test1 = checkres(tres[1])
+        test2 = checkres(tres[2])
+        @test any(test1)
+        @test any(test2)
+        @test test1 .+ test2 == [1, 1]
 
+        # GHZ under random positive non-unitary rotation
+        rand_V = rand(2, 2) + I(2)
+        rand_Vi = inv(rand_V)
+        @tensor GHZ_RV[:] := rand_V[-1,1] * GHZ[1,-2,2] * rand_Vi[2,-3]
+        nres, tres = block_canonical(GHZ_RV)
+        @test length(nres) == 2
+        @test length(tres) == 2
+        @test nres[1] ≈ 1.0 atol = 1e-5
+        @test nres[2] ≈ 1.0 atol = 1e-5
+        test1 = checkres(tres[1])
+        test2 = checkres(tres[2])
+        @test any(test1)
+        @test any(test2)
+        @test test1 .+ test2 == [1, 1]
+    end
+end
+#---------------------------------------------------------------------------------------------------
+@testset "Double AKLT State" begin
+    double_aklt = zeros(4,3,4)
+    double_aklt[1:2, :, 1:2] .= AKLT
+    double_aklt[3:4, :, 3:4] .= AKLT
+    for i=1:100
+        # Double AKLT under random unitary rotation
+        rand_U = exp( -1im * Hermitian( rand(4, 4) ) )
+        @tensor double_aklt_RU[:] := rand_U[-1,1] * double_aklt[1,-2,2] * rand_U'[2,-3]
+        nres, tres = block_canonical(double_aklt)
+        @test length(nres) == 2
+        @test length(tres) == 2
+        @test nres[1] ≈ 1.0 atol = 1e-5
+        @test nres[2] ≈ 1.0 atol = 1e-5
+        @test inner_product(AKLT, tres[1]) ≈ 1.0 atol=1e-5
+        @test inner_product(AKLT, tres[2]) ≈ 1.0 atol=1e-5
+
+        # Double AKLT under random non-unitary rotation
+        rand_V = rand(4, 4)
+        rand_Vi = inv(rand_V)
+        @tensor double_aklt_RV[:] := rand_V[-1,1] * double_aklt[1,-2,2] * rand_Vi[2,-3]
+        nres, tres = block_canonical(double_aklt)
+        @test length(nres) == 2
+        @test length(tres) == 2
+        @test nres[1] ≈ 1.0 atol = 1e-5
+        @test nres[2] ≈ 1.0 atol = 1e-5
+        @test inner_product(AKLT, tres[1]) ≈ 1.0 atol=1e-5
+        @test inner_product(AKLT, tres[2]) ≈ 1.0 atol=1e-5
+    end
+end
 
 

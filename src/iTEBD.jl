@@ -4,7 +4,6 @@ module iTEBD
 #---------------------------------------------------------------------------------------------------
 const BOUND = 50
 const SVDTOL = 1e-7
-const SQRTTOL = 1e-5
 const SORTTOL = 1e-5
 #---------------------------------------------------------------------------------------------------
 # INCLUDE
@@ -14,11 +13,10 @@ using SparseArrays
 using TensorOperations
 import LinearAlgebra: conj
 
+include("TensorAlgebra.jl")
 include("MPS.jl")
-include("Circuits.jl")
 include("Core.jl")
 include("Canonical.jl")
-include("Spin.jl")
-include("TransferMatrix.jl")
+include("Miscellaneous.jl")
 
 end # module iTEBD

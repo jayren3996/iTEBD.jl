@@ -44,8 +44,17 @@ end
 #---------------------------------------------------------------------------------------------------
 gtrm(mps1::iMPS, mps2::iMPS) = gtrm(mps1.Γ, mps2.Γ)
 #---------------------------------------------------------------------------------------------------
-function canonical(mps::iMPS)
+function canonical(
+    mps::iMPS;
+    trim::Bool=false,
+    bound::Integer=BOUND,
+    tol::AbstractFloat=SVDTOL
+)
     Γ, n = mps.Γ, mps.n
-    Γ, λ = canonical(Γ)
+    Γ, λ = if trim
+        canonical_trim(Γ, bound=bound, tol=tol)
+    else
+        canonical(Γ, bound=bound, tol=tol)
+    end
     iMPS(Γ, λ, n)
 end

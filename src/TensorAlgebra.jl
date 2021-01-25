@@ -98,6 +98,24 @@ end
 #      |          |       |        ...   |
 # --λ--Γ--  ==> --Γ1--λ1--Γ2--λ2-- ... --Γn--λn--
 #---------------------------------------------------------------------------------------------------
+function svd_trim(
+    mat::AbstractMatrix,
+    bound::Integer=BOUND,
+    tol::AbstractFloat=SVDTOL
+)
+    res = svd(mat)
+    vals = res.S
+    len = if bound ==0
+        sum(vals .> tol)
+    else
+        min(sum(vals .> tol), bound)
+    end
+    U = res.U[:, 1:len]
+    S = vals[1:len]
+    V = res.Vt[1:len, :]
+    U, S, V
+end
+#---------------------------------------------------------------------------------------------------
 function tensor_svd(
     T::AbstractArray{<:Number, 4};
     renormalize::Bool=false,
@@ -110,15 +128,14 @@ function tensor_svd(
     tol         : minimal value of singular values.
     """
     α, d1, d2, β = size(T)
-    U, S, V = begin
-        svd_res = svd(reshape(T, α*d1, :))
-        svd_res.U, svd_res.S, svd_res.Vt
+    mat = reshape(T, α*d1, :)
+    U, S, V = svd_trim(mat, bound, tol)
+    if renormalize
+        S ./= norm(S)
     end
-    len = bound==0 ? sum(S .> tol) : min(sum(S .> tol), bound)
-    s = renormalize ? normalize(S[1:len]) : S[1:len]
-    u = reshape(U[:, 1:len], α, d1, :)
-    v = reshape(V[1:len, :], :, d2, β)
-    u, s, v
+    u = reshape(U, α, d1, :)
+    v = reshape(V, :, d2, β)
+    u, S, v
 end
 #---------------------------------------------------------------------------------------------------
 function tensor_decomp!(
@@ -258,4 +275,96 @@ function otrm(
         M = M * otrm(T1s[i], O[i], T2s[i])
     end
     M
+end
+
+#---------------------------------------------------------------------------------------------------
+# Dominent eigensystem
+#
+# Find largest (absolute value) eigen value and its vector.
+#---------------------------------------------------------------------------------------------------
+function dominent_eigen(mat::AbstractMatrix)
+    vals, vecs = eigen(mat)
+    vals_abs = real.(vals)
+    pos = argmax(vals_abs)
+    vals_abs[pos], vecs[:, pos]
+end
+
+dominent_eigval(mat::AbstractMatrix) = maximum(abs.(eigvals(mat)))
+#---------------------------------------------------------------------------------------------------
+# Inner product
+export inner_product
+inner_product(T) = dominent_eigval(trm(T))
+inner_product(T1, T2) = dominent_eigval(gtrm(T1, T2))
+
+#---------------------------------------------------------------------------------------------------
+# Krylov eigen system 
+
+# Find dominent eigensystem by iterative multiplication.
+# Krylov method ensures Hermicity and semi-positivity.
+# The trial vector is always choose to be flattened identity matrix.
+#---------------------------------------------------------------------------------------------------
+function krylov_eigen_iteration!(
+    va::Vector,
+    vb::Vector,
+    vc::Vector,
+    mat::AbstractMatrix,
+    tol::AbstractFloat,
+    max_itr::Integer
+)
+    itr = 1
+    err = norm(vc)
+    while err > tol
+        mul!(va, mat, vb)
+        normalize!(va)
+        mul!(vb, mat, va)
+        normalize!(vb)
+        @. vc = va - vb
+        err = norm(vc)
+        itr += 1
+        if itr > max_itr
+            # Reach maximum iteration
+            # Exit loop and print warning
+            println("Krylov method failed to converge within maximum number of iterations.")
+            println("eigval = $(norm(mat * va)) , error = $err")
+            break
+        end
+    end
+end
+#---------------------------------------------------------------------------------------------------
+function krylov_eigen(
+    mat::AbstractMatrix;
+    tol::AbstractFloat=1e-7,
+    max_itr::Integer=1000
+)
+    """
+    Using krylov iteration
+    The resulting dominent eigenvector for transfer matrix is always Hermitian and semi-positive.
+    
+    tol     : tolerace for norm deference.
+    max_itr : maximal nuber of terations.
+    """
+    α = round(Int64, sqrt(size(mat, 1)))
+    expmat = exp(mat)
+    va = begin
+        diag_vect = Array(reshape(I(α), α^2))
+        normalize(expmat * diag_vect)
+    end
+    vb = normalize(expmat * va)
+    vc = va - vb
+    krylov_eigen_iteration!(va, vb, vc, expmat, tol, max_itr)
+    mul!(va, mat, vb)
+    val = norm(va)
+    val, vb
+end
+#---------------------------------------------------------------------------------------------------
+# Find right fixed point matrix using Krylov method.
+function fixed_point(
+    Γ::AbstractArray{<:Number, 3};
+    tol::AbstractFloat=1e-7,
+    max_itr::Integer=1000
+)
+    α = size(Γ, 1)
+    trans_mat = trm(Γ)
+    val, vec = krylov_eigen(trans_mat, tol=tol, max_itr=max_itr)
+    val, Hermitian(reshape(vec, α, α))
 end
