@@ -74,6 +74,26 @@ end
     @test mps.λ[3] ≈ [1/sqrt(2), 1/sqrt(2)] atol=1e-5
     @test inner_product(mps, AKLT_MPS_3) ≈ 1.0 atol=1e-5
 end
+#---------------------------------------------------------------------------------------------------
+# Test Real-time iTEBD
+#---------------------------------------------------------------------------------------------------
+@testset "AKLT_DYNAMICS" begin
+    dt = 0.1
+    rdim = 50
+    H = begin
+        ss = spinmat("xx",3) + spinmat("yy",3) + spinmat("zz",3)
+        ss + 1/3*ss^2 + 2/3*I(9)
+    end
+    sys = itebd(H, dt, mode="r", bound=rdim)
+    mps = deepcopy(AKLT_MPS)
+    # Best: 0.85s
+    @time for i=1:1000
+        mps = sys(mps)
+        @test inner_product(mps, AKLT_MPS) ≈ 1.0 atol=1e-5
+    end
+    @test size(mps.Γ[1]) == (2, 3, 2)
+    @test size(mps.Γ[2]) == (2, 3, 2)
+end
 
 #---------------------------------------------------------------------------------------------------
 # Test Block-canonical

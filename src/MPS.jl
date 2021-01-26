@@ -69,7 +69,7 @@ function entropy(
     i::Integer
 )
     j = mod(i-1, mps.n) + 1
-    λj = mps.λ[j]
+    λj = mps.λ[j].^2
     entanglement_entropy(λj)
 end
 

@@ -40,12 +40,12 @@ end
 #---------------------------------------------------------------------------------------------------
 function entanglement_entropy(
     S::AbstractVector;
-    cutoff::AbstractFloat=1e-7
+    cutoff::AbstractFloat=1e-10
 )
     EE = 0.0
     for si in S
         if si > cutoff
-            EE += s * log(s)
+            EE -= si * log(si)
         end
     end
     EE
