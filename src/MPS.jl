@@ -61,6 +61,33 @@ function applygate!(
     iMPS(Γ, λ, n)
 end
 #---------------------------------------------------------------------------------------------------
+function applygate!(
+    G::AbstractMatrix{<:Number},
+    mps::iMPS,
+    inds::AbstractVector{<:Integer};
+    renormalize::Bool=false,
+    bound::Int64=BOUND,
+    tol::Float64=SVDTOL
+)
+    inds = mod.(inds .- 1, mps.n) .+ 1
+    Γs = mps.Γ[inds]
+    λs = mps.λ[inds]
+    Γs_new, λs_new = applygate!(G, Γs, λs[end], renormalize=renormalize, bound=bound, tol=tol)
+    Γ, λ = mps.Γ, mps.λ
+    Γ[inds] = Γs_new
+    λ[inds] = λs_new
+    mps
+end
+#---------------------------------------------------------------------------------------------------
+function mps_promote_type(
+    T::DataType,
+    mps::iMPS
+)
+    Γ, λ, n = mps.Γ, mps.λ, mps.n
+    Γ_new = Array{T}.(Γ)
+    iMPS(Γ_new, λ, n)
+end
+#---------------------------------------------------------------------------------------------------
 gtrm(mps1::iMPS, mps2::iMPS) = gtrm(mps1.Γ, mps2.Γ)
 #---------------------------------------------------------------------------------------------------
 export entropy

@@ -36,10 +36,23 @@ end
 # Run iTEBD
 #---------------------------------------------------------------------------------------------------
 function (engin::iTEBD_Engine)(mps::iMPS)
-    gate, renormalize, bound, tol = engin.gate, engin.renormalize, engin.bound, engin.tol
-    mps = applygate!(gate, mps, renormalize=renormalize, bound=bound, tol=tol)
-    for i=2:mps.n
-        mps = applygate!(gate, cycle(mps, 2), renormalize=renormalize, bound=bound, tol=tol)
+    gate = engin.gate
+    renormalize = engin.renormalize
+    bound = engin.bound
+    tol = engin.tol
+
+    qdim = size(mps.Γ[1], 2)
+    gdim = size(gate, 1)
+    nsite = round(Int64, log(qdim, gdim))
+    gtype = eltype(engin.gate)
+    mps_in = if gtype <: Complex
+        mps_promote_type(gtype, mps)
+    else
+        deepcopy(mps)
     end
-    cycle(mps, 2)
+    for i = 1:mps.n
+        inds = i:i+nsite-1
+        applygate!(gate, mps_in, inds, renormalize=renormalize, bound=bound, tol=tol)
+    end
+    mps_in
 end
