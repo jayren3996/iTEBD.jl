@@ -44,6 +44,7 @@ end
 #---------------------------------------------------------------------------------------------------
 gtrm(mps1::iMPS, mps2::iMPS) = gtrm(mps1.Γ, mps2.Γ)
 #---------------------------------------------------------------------------------------------------
+export canonical
 function canonical(
     mps::iMPS;
     trim::Bool=false,
@@ -54,7 +55,7 @@ function canonical(
     Γ, λ = if trim
         canonical_trim(Γ, bound=bound, tol=tol)
     else
-        canonical(Γ, bound=bound, tol=tol)
+        schmidt_canonical(Γ, bound=bound, tol=tol)
     end
     iMPS(Γ, λ, n)
 end

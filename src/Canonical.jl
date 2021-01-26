@@ -235,8 +235,7 @@ end
 #---------------------------------------------------------------------------------------------------
 # Non-degenerate Schmidt Canonical Form
 #---------------------------------------------------------------------------------------------------
-export canonical
-function canonical(
+function schmidt_canonical(
     Ts::AbstractVector{<:AbstractArray{<:Number, 3}};
     renormalize=true,
     bound::Integer=BOUND,
