@@ -1,5 +1,10 @@
 #---------------------------------------------------------------------------------------------------
-# MPS type
+# MPS TYPE
+#
+# Parameters:
+# Γ : Vector of tensors.
+# λ : Vector of Schmidt values.
+# n : Number of tensors in the periodic blocks.
 #---------------------------------------------------------------------------------------------------
 export iMPS
 struct iMPS{TΓ<:Number, Tλ<:Number}
@@ -13,6 +18,12 @@ function iMPS(Γ::AbstractVector{<:AbstractArray{<:Number, 3}})
     λ = [ones(size(Γi, 3)) for Γi in Γ]
     iMPS(Γ, λ, n)
 end
+
+#---------------------------------------------------------------------------------------------------
+# INITIATE MPS
+#
+# 1. rand_iMPS    : Randomly generate iMPS with given bond dimension.
+# 2. product_iMPS : Return iMPS from product state.
 #---------------------------------------------------------------------------------------------------
 export rand_iMPS
 function rand_iMPS(
@@ -24,6 +35,14 @@ function rand_iMPS(
     λ = [ones(dim) for i=1:n]
     iMPS(Γ, λ, n)
 end
+
+#---------------------------------------------------------------------------------------------------
+# BASIC MANIPULATION
+#
+# 1. conj       : Complex conjugation of iMPS.
+# 2. applygate! : Apply gate to iMPS, return the result. The initial one will be altered.
+# 3. gtrm       : Transfer matrix of the block periodic iMPS.
+# 4. entropy    : Return entanglement entropy across bond i.
 #---------------------------------------------------------------------------------------------------
 function conj(mps::iMPS)
     Γ, λ, n = mps.Γ, mps.λ, mps.n
@@ -43,6 +62,19 @@ function applygate!(
 end
 #---------------------------------------------------------------------------------------------------
 gtrm(mps1::iMPS, mps2::iMPS) = gtrm(mps1.Γ, mps2.Γ)
+#---------------------------------------------------------------------------------------------------
+export entropy
+function entropy(
+    mps::iMPS,
+    i::Integer
+)
+    j = mod(i-1, mps.n) + 1
+    λj = mps.λ[j]
+    entanglement_entropy(λj)
+end
+
+#---------------------------------------------------------------------------------------------------
+# CANONICAL FORMS
 #---------------------------------------------------------------------------------------------------
 export canonical
 function canonical(
