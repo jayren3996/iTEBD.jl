@@ -11,6 +11,7 @@ const SORTTOL = 1e-5
 using LinearAlgebra
 using SparseArrays
 using TensorOperations
+using KrylovKit
 import LinearAlgebra: conj
 
 include("TensorAlgebra.jl")

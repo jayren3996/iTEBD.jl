@@ -52,6 +52,22 @@ function entanglement_entropy(
 end
 
 #---------------------------------------------------------------------------------------------------
+# Inner Product
+#---------------------------------------------------------------------------------------------------
+export inner_product
+function inner_product(T)
+    trmat = trm(T)
+    val, vec = eigsolve(trmat)
+    abs(val[1])
+end
+
+function inner_product(T1, T2)
+    trmat = gtrm(T1, T2)
+    val, vec = eigsolve(trmat)
+    abs(val[1])
+end
+
+#---------------------------------------------------------------------------------------------------
 # Symmetry representation
 #---------------------------------------------------------------------------------------------------
 function symrep(T, U; tr::Bool=false)

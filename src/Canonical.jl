@@ -133,22 +133,28 @@ function block_decomp(
     tol::AbstractFloat=1e-5
 )
     α = size(Γ, 1)
-    # compute eigen vectors with eigenvalue 1.
-    vecs = begin
-        trans_mat = trm(Γ)
-        trm_vals, trm_vecs = eigen(trans_mat)
-        pos = abs.(trm_vals .- 1) .< tol 
-        trm_vecs[:, pos]
-    end
-    # Non-degenerate case:
-    if size(vecs, 2) < 2
+    if α == 1
         return [Γ]
     end
-    # Degenerate:
-    Γ1, Γ2 = block_split(Γ, vecs, tol=tol)
-    Γ1c = block_decomp(Γ1)::Vector
-    Γ2c = block_decomp(Γ2)::Vector
-    return [Γ1c; Γ2c]
+
+    vals, vecs = begin
+        # find eigen vectors with eigenvalue 1.
+        trmat = trm(Γ)
+        vals_all, vecs_all = eigen(trmat)
+        pos = abs.(vals_all .- 1) .< tol
+        vals_all[pos], vecs_all[:, pos]
+    end
+    
+    if length(vals) < 2
+        # Non-degenerate case:
+        return [Γ]
+    else
+        # Degenerate:
+        Γ1, Γ2 = block_split(Γ, vecs, tol=tol)
+        Γ1c = block_decomp(Γ1)::Vector
+        Γ2c = block_decomp(Γ2)::Vector
+        return [Γ1c; Γ2c]
+    end
 end
 #---------------------------------------------------------------------------------------------------
 function block_trim(

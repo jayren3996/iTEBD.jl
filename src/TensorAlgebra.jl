@@ -278,25 +278,6 @@ function otrm(
 end
 
 #---------------------------------------------------------------------------------------------------
-# Dominent eigensystem
-#
-# Find largest (absolute value) eigen value and its vector.
-#---------------------------------------------------------------------------------------------------
-function dominent_eigen(mat::AbstractMatrix)
-    vals, vecs = eigen(mat)
-    vals_abs = real.(vals)
-    pos = argmax(vals_abs)
-    vals_abs[pos], vecs[:, pos]
-end
-
-dominent_eigval(mat::AbstractMatrix) = maximum(abs.(eigvals(mat)))
-#---------------------------------------------------------------------------------------------------
-# Inner product
-export inner_product
-inner_product(T) = dominent_eigval(trm(T))
-inner_product(T1, T2) = dominent_eigval(gtrm(T1, T2))
-
-#---------------------------------------------------------------------------------------------------
 # Krylov eigen system 
 
 # Find dominent eigensystem by iterative multiplication.
@@ -309,7 +290,7 @@ function krylov_eigen_iteration!(
     vc::Vector,
     mat::AbstractMatrix,
     tol::AbstractFloat,
-    max_itr::Integer
+    maxitr::Integer
 )
     itr = 1
     err = norm(vc)
@@ -321,7 +302,7 @@ function krylov_eigen_iteration!(
         @. vc = va - vb
         err = norm(vc)
         itr += 1
-        if itr > max_itr
+        if itr > maxitr
             # Reach maximum iteration
             # Exit loop and print warning
             println("Krylov method failed to converge within maximum number of iterations.")
@@ -334,15 +315,8 @@ end
 function krylov_eigen(
     mat::AbstractMatrix;
     tol::AbstractFloat=1e-7,
-    max_itr::Integer=1000
+    maxitr::Integer=1000
 )
-    """
-    Using krylov iteration
-    The resulting dominent eigenvector for transfer matrix is always Hermitian and semi-positive.
-    
-    tol     : tolerace for norm deference.
-    max_itr : maximal nuber of terations.
-    """
     α = round(Int64, sqrt(size(mat, 1)))
     expmat = exp(mat)
     va = begin
@@ -351,20 +325,16 @@ function krylov_eigen(
     end
     vb = normalize(expmat * va)
     vc = va - vb
-    krylov_eigen_iteration!(va, vb, vc, expmat, tol, max_itr)
+    krylov_eigen_iteration!(va, vb, vc, expmat, tol, maxitr)
     mul!(va, mat, vb)
     val = norm(va)
     val, vb
 end
 #---------------------------------------------------------------------------------------------------
 # Find right fixed point matrix using Krylov method.
-function fixed_point(
-    Γ::AbstractArray{<:Number, 3};
-    tol::AbstractFloat=1e-7,
-    max_itr::Integer=1000
-)
+function fixed_point(Γ::AbstractArray{<:Number, 3})
     α = size(Γ, 1)
     trans_mat = trm(Γ)
-    val, vec = krylov_eigen(trans_mat, tol=tol, max_itr=max_itr)
+    val, vec = krylov_eigen(trans_mat)
     val, Hermitian(reshape(vec, α, α))
 end
