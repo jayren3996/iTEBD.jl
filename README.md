@@ -28,15 +28,15 @@ struct iMPS{TΓ<:Number, Tλ<:Number}
 end
 ```
 
-Here we use a slightly different representation with that of Vidal's. The tensor ```Γ[i]``` already contain the Schmidt spectrum ```λ[i]```, which means when brought to canonical form, each ```Γ[i]``` is right-canonical, while ```λ[i]``` contains the entanglement information.
+Here we use a slightly different representation with that of Vidal's. The tensor `Γ[i]` already contain the Schmidt spectrum `λ[i]`, which means when brought to canonical form, each `Γ[i]` is right-canonical, while `λ[i]` contains the entanglement information.
 
-There is a function ```rand_iMPS(n::Integer,d::Integer,dim::Integer)``` that generates a random iMPS with ```n``` periodic sites, ```d``` local degrees of freedom, and bond dimension ```dim```.
+There is a function `rand_iMPS(n::Integer,d::Integer,dim::Integer)` that generates a random iMPS with `n` periodic sites, `d` local degrees of freedom, and bond dimension `dim`.
 
-With a set of given tensors, a ```iMPS``` object can be explicitly constructed by ```iMPS(Γ)```.
+With a set of given tensors, a `iMPS` object can be explicitly constructed by `iMPS(Γ)`.
 
 ### Hamiltonian
 
-An Hamiltonian is just an  ```Array{T,2}```. There is also a helper function ```spinmat``` for constructing spin Hamiltonian. For example, AKLT Hamiltoniancan be constructed by:
+An Hamiltonian is just an  `Array{T,2}`. There is also a helper function `spinmat` for constructing spin Hamiltonian. For example, AKLT Hamiltoniancan be constructed by:
 
 ```julia
 hamiltonian = begin

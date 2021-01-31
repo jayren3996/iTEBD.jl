@@ -13,8 +13,11 @@ export iMPS
 iMPS type 
 
 # Parameters:
+
 Γ : Vector of tensors.
+
 λ : Vector of Schmidt values.
+
 n : Number of tensors in the periodic blocks.
 """
 struct iMPS{TΓ<:Number, Tλ<:Number}
