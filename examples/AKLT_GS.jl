@@ -1,5 +1,6 @@
 using iTEBD
 using LinearAlgebra
+using iTEBD: spinmat
 
 # Create random iMPS
 imps = begin

@@ -82,7 +82,7 @@ function tensor_group(Γs::AbstractVector{<:AbstractArray{T, 3}}) where T<:Numbe
         index_temp[1][1] = -1
         index_temp[number][3] = -number-2
         index_temp
-    end
+    end::Vector{Vector{Int64}}
     Γ_contracted = ncon(Γs, index)::Array{T, number+2}
     reshape(Γ_contracted, α, :, β)
 end
@@ -277,64 +277,3 @@ function otrm(
     M
 end
 
-#---------------------------------------------------------------------------------------------------
-# Krylov eigen system 
-
-# Find dominent eigensystem by iterative multiplication.
-# Krylov method ensures Hermicity and semi-positivity.
-# The trial vector is always choose to be flattened identity matrix.
-#---------------------------------------------------------------------------------------------------
-function krylov_eigen_iteration!(
-    va::Vector,
-    vb::Vector,
-    vc::Vector,
-    mat::AbstractMatrix,
-    tol::AbstractFloat,
-    maxitr::Integer
-)
-    itr = 1
-    err = norm(vc)
-    while err > tol
-        mul!(va, mat, vb)
-        normalize!(va)
-        mul!(vb, mat, va)
-        normalize!(vb)
-        @. vc = va - vb
-        err = norm(vc)
-        itr += 1
-        if itr > maxitr
-            # Reach maximum iteration
-            # Exit loop and print warning
-            println("Krylov method failed to converge within maximum number of iterations.")
-            println("eigval = $(norm(mat * va)) , error = $err")
-            break
-        end
-    end
-end
-#---------------------------------------------------------------------------------------------------
-function krylov_eigen(
-    mat::AbstractMatrix;
-    tol::AbstractFloat=1e-7,
-    maxitr::Integer=1000
-)
-    α = round(Int64, sqrt(size(mat, 1)))
-    expmat = exp(mat)
-    va = begin
-        diag_vect = Array(reshape(I(α), α^2))
-        normalize(expmat * diag_vect)
-    end
-    vb = normalize(expmat * va)
-    vc = va - vb
-    krylov_eigen_iteration!(va, vb, vc, expmat, tol, maxitr)
-    mul!(va, mat, vb)
-    val = norm(va)
-    val, vb
-end
-#---------------------------------------------------------------------------------------------------
-# Find right fixed point matrix using Krylov method.
-function fixed_point(Γ::AbstractArray{<:Number, 3})
-    α = size(Γ, 1)
-    trans_mat = trm(Γ)
-    val, vec = krylov_eigen(trans_mat)
-    val, Hermitian(reshape(vec, α, α))
-end

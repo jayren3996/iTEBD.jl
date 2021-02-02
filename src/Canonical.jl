@@ -8,7 +8,7 @@ function canonical_gauging(
     Γ::AbstractArray{<:Number, 3},
     vals::AbstractVector,
     vecs::AbstractMatrix;
-    renormalize::Bool=true
+    renormalize::Bool=false
 )
     vals_sqrt = sqrt.(vals)
     X = vecs * Diagonal(vals_sqrt)
@@ -24,7 +24,7 @@ end
 function canonical_gauging(
     Γ::AbstractArray{<:Number, 3},
     vecs::AbstractMatrix;
-    renormalize::Bool=true
+    renormalize::Bool=false
 )
     @tensor Γ2[:] := vecs'[-1,1] * Γ[1,-2,2] * vecs[2,-3]
     if renormalize
@@ -37,54 +37,97 @@ end
 function canonical_split(
     Γ::AbstractArray{<:Number, 3},
     p1::AbstractMatrix,
-    p2::AbstractMatrix
+    p2::AbstractMatrix;
+    renormalize::Bool=false
 )
     @tensor Γ1[:] := p1'[-1,1] * Γ[1,-2,2] * p1[2,-3]
     @tensor Γ2[:] := p2'[-1,1] * Γ[1,-2,2] * p2[2,-3]
+    if renormalize
+        Γ1n = sqrt(inner_product(Γ1))
+        Γ2n = sqrt(inner_product(Γ2))
+        Γ1 ./= Γ1n
+        Γ2 ./= Γ2n
+    end
     Γ1, Γ2
 end
+
+#---------------------------------------------------------------------------------------------------
+# Krylov eigen system 
+
+# Find dominent eigensystem by iterative multiplication.
+# Krylov method ensures Hermicity and semi-positivity.
+# The trial vector is always choose to be flattened identity matrix.
+#---------------------------------------------------------------------------------------------------
+function krylov_eigen_iteration!(
+    va::Vector,
+    vb::Vector,
+    mat::AbstractMatrix,
+    tol::AbstractFloat,
+    maxitr::Integer
+)
+    itr = 1
+    val = 0.0
+    err = 1.0
+    while err > tol
+        mul!(vb, mat, va)
+        mul!(va, mat, vb)
+        normalize!(va)
+        val_new = dot(va, vb)
+        err = abs(val - val_new)
+        if itr > maxitr
+            # Exit loop and print warning
+            println("Krylov method failed to converge within maximum number of iterations.")
+            println("Krylov error = $err")
+            break
+        end
+        val = val_new
+        itr += 1
+    end
+end
+#---------------------------------------------------------------------------------------------------
+function fixed_point(
+    mat::AbstractMatrix,
+    v0::AbstractVector;
+    tol::AbstractFloat=1e-10,
+    maxitr::Integer=10000
+)
+    # choose pmat to avoid other exp(iθ) eigen values
+    pmat = (mat^2 + mat) / 2
+    vb = pmat * v0
+    va = normalize(pmat * vb)
+    krylov_eigen_iteration!(va, vb, pmat, tol, maxitr)
+    mul!(vb, mat, va)
+    val = dot(va , vb)
+    val, va
+end
+
 #---------------------------------------------------------------------------------------------------
 # Right Canonical Form
 #
 # 1. The algorithm will tensor that is right-normalized.
-# 2. If a degeneracy is encuntered, there would be multiple outputs.
-# 3. While it is NOT guaranteed that the outputs are non-degenerate.
-# 4. The right_canonical_trim will only keeps one block if degeneracy is encountered.
+# 2. Automatically trim null-space.
+# 3. Is NOT guaranteed that the outputs are non-degenerate.
+# 4. The algorithm is UNSTABLE if the transfer matrix has huge condition number.
 #---------------------------------------------------------------------------------------------------
-function right_cannonical(
+function right_canonical(
     Γ::AbstractArray{<:Number, 3};
-    tol::AbstractFloat=1e-14
+    tol::AbstractFloat=1e-17,
+    renormalize=true
 )
-    Γnorm, fixed_mat = fixed_point(Γ)
-    if Γnorm < tol
-        return [(0.0, Γ)]
-    end
+    α = size(Γ, 1)
+    trmat = trm(Γ)
+    v0 = Array(reshape(I(α), :))
+
+    Γ_norm, fixed_vec = fixed_point(trmat, v0)
+    fixed_mat = Hermitian(reshape(fixed_vec, α, α))
     vals, vecs = eigen(fixed_mat)
-    pos = sum(vals .< tol)
-    if pos == 0
-        Γ_new = canonical_gauging(Γ, vals, vecs)
-        return [(Γnorm, Γ_new)]
-    else
-        p1, p2 = vecs[:, pos+1:end], vecs[:, 1:pos]
-        Γ1, Γ2 = canonical_split(Γ, p1, p2)
-        # recurence
-        Γ1_RC = right_cannonical(Γ1, tol=tol)::Vector{Tuple}
-        Γ2_RC = right_cannonical(Γ2, tol=tol)::Vector{Tuple}
-        return [Γ1_RC; Γ2_RC]
+
+    pos = vals .> tol
+    Γ_new = canonical_gauging(Γ, vals[pos], vecs[:, pos])
+    if renormalize
+        Γ_new ./= sqrt(Γ_norm)
     end
-end
-#---------------------------------------------------------------------------------------------------
-function right_canonical_trim(
-    Γ::AbstractArray{<:Number, 3};
-    tol::AbstractFloat=1e-14
-)
-    Γnorm, fixed_mat = fixed_point(Γ)
-    vals, vecs = begin
-        vals_all, vecs_all = eigen(fixed_mat)
-        pos = vals_all .> tol
-        vals_all[pos], vecs_all[:, pos]
-    end
-    canonical_gauging(Γ, vals, vecs)
+    Γ_new
 end
 
 #---------------------------------------------------------------------------------------------------
@@ -95,91 +138,86 @@ end
 # 3. block_trim only return one block when degeneracy is encountered.
 #---------------------------------------------------------------------------------------------------
 function fixed_mat_2(
-    vecs::AbstractMatrix, 
+    mat::AbstractMatrix, 
     α::Integer, 
-    tol::AbstractFloat
+    tol::AbstractFloat=1e-10,
+    maxitr::Integer=10000
 )
-    eig_mat = reshape(vecs[:, 1], α, α)
-    eig_mat_h = (1+1im) * eig_mat + (1-1im) * eig_mat'
-    id_mat = I(α) * eig_mat_h[1,1]
-    if norm(id_mat - eig_mat_h) < tol
-        # The first eigen matrix is identity.
-        # Here I assume in this case the second eigen matrix is good.
-        eig_mat = reshape(vecs[:, 2], α, α)
-        eig_mat_h = (1+1im) * eig_mat + (1-1im) * eig_mat'
-        id_mat = I(α) * eig_mat_h[1,1]
-        @assert norm(id_mat - eig_mat_h) > tol "Second identity. Get trouble!!!"
-    end
-    Hermitian(eig_mat_h)
+    ρ = Hermitian(rand(ComplexF64, α, α))
+    v0 = Array(reshape(ρ, :))
+    val, fixed_vec = fixed_point(mat, v0, tol=tol, maxitr=maxitr)
+    Hermitian(reshape(fixed_vec, α, α))
 end
 #---------------------------------------------------------------------------------------------------
-function block_split(
-    Γ::AbstractArray{<:Number, 3},
-    vecs::AbstractArray{<:Number, 2};
-    tol::AbstractFloat=1e-5
+function vals_group(
+    vals::Vector;
+    sorttol::AbstractFloat=1e-3
 )
-    α = size(Γ, 1)
-    fixed_mat = fixed_mat_2(vecs, α, tol)
-    vals, vecs = eigen(fixed_mat)
-    pos = sum(maximum(vals) .- vals .< tol)
-    @assert 0 < pos < length(vals) "Illegal block split."
-    # eigenvalues is from small to large
-    p1, p2 = vecs[:, 1:end-pos], vecs[:, end-pos+1:end]
-    canonical_split(Γ, p1, p2)
+    pos = Vector{Vector{Int64}}(undef, 0)
+    current_val = vals[1]
+    temp = zeros(Int64, 0)
+    for i=1:length(vals)
+        if abs(vals[i]-current_val) .< sorttol
+            push!(temp, i)
+        else
+            push!(pos, temp)
+            temp = [i]
+            current_val = vals[i]
+        end
+    end
+    push!(pos, temp)
+    pos
 end
 #---------------------------------------------------------------------------------------------------
 function block_decomp(
     Γ::AbstractArray{<:Number, 3};
-    tol::AbstractFloat=1e-5
+    tol::AbstractFloat=1e-10,
+    maxitr::Integer=10000,
+    sorttol::AbstractFloat=1e-3
 )
     α = size(Γ, 1)
     if α == 1
         return [Γ]
     end
-
     vals, vecs = begin
-        # find eigen vectors with eigenvalue 1.
         trmat = trm(Γ)
-        vals_all, vecs_all = eigen(trmat)
-        pos = abs.(vals_all .- 1) .< tol
-        vals_all[pos], vecs_all[:, pos]
+        fixed_mat = fixed_mat_2(trmat, α, tol, maxitr)
+        eigen(fixed_mat)
+    end   
+    vgroup = vals_group(vals, sorttol=sorttol)
+    res = begin
+        num = length(vgroup)
+        ctype = promote_type(eltype(Γ), eltype(vecs))
+        Vector{Array{ctype, 3}}(undef, num)
     end
-    
-    if length(vals) < 2
-        # Non-degenerate case:
-        return [Γ]
-    else
-        # Degenerate:
-        Γ1, Γ2 = block_split(Γ, vecs, tol=tol)
-        Γ1c = block_decomp(Γ1)::Vector
-        Γ2c = block_decomp(Γ2)::Vector
-        return [Γ1c; Γ2c]
+    for i=1:num
+        p = vecs[:, vgroup[i]]
+        Γc = canonical_gauging(Γ, p)
+        res[i] = Γc
     end
+    res
 end
+
 #---------------------------------------------------------------------------------------------------
 function block_trim(
     Γ::AbstractArray{<:Number, 3};
-    tol::AbstractFloat=1e-5
+    tol::AbstractFloat=1e-5,
+    maxitr::Integer=10000,
+    sorttol::AbstractFloat=1e-3
 )
     α = size(Γ, 1)
-    # compute eigen vectors with eigenvalue 1.
-    vecs = begin
-        trans_mat = trm(Γ)
-        trm_vals, trm_vecs = eigen(trans_mat)
-        pos = abs.(trm_vals .- 1) .< tol 
-        trm_vecs[:, pos]
-    end
-    # Non-degenerate case:
-    if size(vecs, 2) < 2
+    if α == 1
         return Γ
     end
-    # Degenerate:
-    fixed_mat = fixed_mat_2(vecs, α, tol)
-    vals, vecs = eigen(fixed_mat)
-    pos = maximum(vals) .- vals .< tol
-    p1 = vecs[:, pos]
-    Γ_trim = canonical_gauging(Γ, p1)
-    block_trim(Γ_trim, tol=tol)
+    vals, vecs = begin
+        trmat = trm(Γ)
+        fixed_mat = fixed_mat_2(trmat, α, tol, maxitr)
+        eigen(fixed_mat)
+    end
+    vgroup = vals_group(vals, sorttol=sorttol)
+    i = argmin(length.(vgroup))
+    p = vecs[:, vgroup[i]]
+    canonical_gauging(Γ, p)
 end
 
 #---------------------------------------------------------------------------------------------------
@@ -190,17 +228,8 @@ end
 #---------------------------------------------------------------------------------------------------
 export block_canonical
 function block_canonical(Γ::AbstractArray{<:Number, 3})
-    Γs = right_cannonical(Γ)
-    norm_list = []
-    tensor_list = []
-    for Γi in Γs
-        normi = Γi[1]
-        Γis = block_decomp(Γi[2])
-        ni = length(Γis)
-        norm_list = vcat(norm_list, fill(normi, ni))
-        tensor_list = vcat(tensor_list, Γis)
-    end
-    norm_list, tensor_list
+    Γ_RC = right_canonical(Γ)
+    block_decomp(Γ_RC)
 end
 
 #---------------------------------------------------------------------------------------------------
@@ -219,7 +248,8 @@ function schmidt_canonical(
     α = size(Γ, 1)
     lmat = begin
         trans_mat_T = Array(transpose(trm(Γ)))
-        emax, lvec = krylov_eigen(trans_mat_T)
+        v0 = Array(reshape(I(α), :))
+        emax, lvec = fixed_point(trans_mat_T, v0)
         reshape(lvec, α, :)
     end
     Yt = begin
@@ -241,6 +271,8 @@ end
 #---------------------------------------------------------------------------------------------------
 # Non-degenerate Schmidt Canonical Form
 #---------------------------------------------------------------------------------------------------
+
+export schmidt_canonical
 function schmidt_canonical(
     Ts::AbstractVector{<:AbstractArray{<:Number, 3}};
     renormalize=true,
@@ -249,12 +281,13 @@ function schmidt_canonical(
 )
     n = length(Ts)
     T = tensor_group(Ts)
-    T_RC = right_canonical_trim(T)
+    T_RC = right_canonical(T)
     A, λ = schmidt_canonical(T_RC, renormalize=renormalize)
     tensor_lmul!(λ, A)
     tensor_decomp!(A, λ, n, renormalize=renormalize, bound=bound, tol=tol)
 end
 #---------------------------------------------------------------------------------------------------
+export canonical_trim
 function canonical_trim(
     Ts::AbstractVector{<:AbstractArray{<:Number, 3}};
     renormalize=true,
@@ -263,7 +296,7 @@ function canonical_trim(
 )
     n = length(Ts)
     T = tensor_group(Ts)
-    T_RC = right_canonical_trim(T)
+    T_RC = right_canonical(T)
     T_BRC = block_trim(T_RC)
     A, λ = schmidt_canonical(T_BRC, renormalize=renormalize)
     tensor_lmul!(λ, A)

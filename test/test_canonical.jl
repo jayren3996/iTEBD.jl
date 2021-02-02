@@ -1,99 +1,61 @@
 include("../src/iTEBD.jl")
+using .iTEBD
 using Test
 using LinearAlgebra
 using TensorOperations
-import .iTEBD: trm
-import .iTEBD: fixed_point, canonical, block_canonical, inner_product
-import .iTEBD: right_cannonical, schmidt_canonical
+import .iTEBD: spinmat, trm, fixed_point, right_canonical, block_decomp, fixed_mat_2, vals_group
+
 #---------------------------------------------------------------------------------------------------
-# test basis quantum circuits
+# Random tensors: (1,3,1) + (2,3,2) + (3,3,3) + (4,3,4) 
 #---------------------------------------------------------------------------------------------------
-const AKLT = begin
-    tensor = zeros(2,3,2)
-    tensor[1,1,2] = +sqrt(2/3)
-    tensor[1,2,1] = -sqrt(1/3)
-    tensor[2,2,2] = +sqrt(1/3)
-    tensor[2,3,1] = -sqrt(2/3)
-    tensor
-end
+TENSOR = zeros(10, 3, 10)
+FIXMAT = zeros(ComplexF64, 10, 10)
 
-const GHZ = begin
-    tensor = zeros(2,2,2)
-    tensor[1,1,1] = 1
-    tensor[2,2,2] = 1
-    tensor
-end
-
-@testset "GHZ State" begin
-    target_1 = zeros(1,2,1)
-    target_1[1,1,1] = 1
-    target_2 = zeros(1,2,1)
-    target_2[1,2,1] = 1
-    function checkres(res)
-        b1 = isapprox(inner_product(res, target_1), 1.0, atol=1e-5)
-        b2 = isapprox(inner_product(res, target_2), 1.0, atol=1e-5)
-        return [b1, b2]
-    end
-    for i = 1:100
-        # GHZ under random unitary rotation
-        rand_U = exp( -1im * Hermitian( rand(2, 2) ) )
-        @tensor GHZ_RU[:] := rand_U[-1,1] * GHZ[1,-2,2] * rand_U'[2,-3]
-        nres, tres = block_canonical(GHZ_RU)
-        @test length(nres) == 2
-        @test length(tres) == 2
-        @test nres[1] ≈ 1.0 atol = 1e-5
-        @test nres[2] ≈ 1.0 atol = 1e-5
-        test1 = checkres(tres[1])
-        test2 = checkres(tres[2])
-        @test any(test1)
-        @test any(test2)
-        @test test1 .+ test2 == [1, 1]
-
-        # GHZ under random positive non-unitary rotation
-        rand_V = rand(2, 2) + I(2)
-        rand_Vi = inv(rand_V)
-        @tensor GHZ_RV[:] := rand_V[-1,1] * GHZ[1,-2,2] * rand_Vi[2,-3]
-        nres, tres = block_canonical(GHZ_RV)
-        @test length(nres) == 2
-        @test length(tres) == 2
-        @test nres[1] ≈ 1.0 atol = 1e-5
-        @test nres[2] ≈ 1.0 atol = 1e-5
-        test1 = checkres(tres[1])
-        test2 = checkres(tres[2])
-        @test any(test1)
-        @test any(test2)
-        @test test1 .+ test2 == [1, 1]
-    end
-end
-
-@testset "Double AKLT State" begin
-    double_aklt = zeros(4,3,4)
-    double_aklt[1:2, :, 1:2] .= AKLT
-    double_aklt[3:4, :, 3:4] .= AKLT
+@testset "RANDOM_TENSOR" begin
     for i=1:100
-        # Double AKLT under random unitary rotation
-        rand_U = exp( -1im * Hermitian( rand(4, 4) ) )
-        @tensor double_aklt_RU[:] := rand_U[-1,1] * double_aklt[1,-2,2] * rand_U'[2,-3]
-        nres, tres = block_canonical(double_aklt)
-        @test length(nres) == 2
-        @test length(tres) == 2
-        @test nres[1] ≈ 1.0 atol = 1e-5
-        @test nres[2] ≈ 1.0 atol = 1e-5
-        @test inner_product(AKLT, tres[1]) ≈ 1.0 atol=1e-5
-        @test inner_product(AKLT, tres[2]) ≈ 1.0 atol=1e-5
+        ten1 = rand(1, 3, 1)
+        ten2 = rand(2, 3, 2)
+        ten3 = rand(3, 3, 3)
+        ten4 = rand(4, 3, 4)
+        ten1 /= sqrt(inner_product(ten1))
+        ten2 /= sqrt(inner_product(ten2))
+        ten3 /= sqrt(inner_product(ten3))
+        ten4 /= sqrt(inner_product(ten4))
+        tens = [ten1, ten2, ten3, ten4]
 
-        # Double AKLT under random non-unitary rotation
-        rand_V = rand(4, 4)
-        rand_Vi = inv(rand_V)
-        @tensor double_aklt_RV[:] := rand_V[-1,1] * double_aklt[1,-2,2] * rand_Vi[2,-3]
-        nres, tres = block_canonical(double_aklt)
-        @test length(nres) == 2
-        @test length(tres) == 2
-        @test nres[1] ≈ 1.0 atol = 1e-5
-        @test nres[2] ≈ 1.0 atol = 1e-5
-        @test inner_product(AKLT, tres[1]) ≈ 1.0 atol=1e-5
-        @test inner_product(AKLT, tres[2]) ≈ 1.0 atol=1e-5
+        # Block
+        tenc = zeros(10, 3, 10)
+        tenc[1:1, :, 1:1] .= ten1
+        tenc[2:3, :, 2:3] .= ten2
+        tenc[4:6, :, 4:6] .= ten3
+        tenc[7:10, :, 7:10] .= ten4
+        rand_V = rand(10, 10)
+        @tensor tenr[:] := rand_V[-1,1] * tenc[1,-2,2] * inv(rand_V)[2,-3]
+
+        for j=1:2
+            tenr = right_canonical(tenr)
+        end
+
+        res = block_decomp(tenr)
+
+        @test length(res)==4
+        if length(res)==4
+            for j=1:4
+                dim = size(res[j], 1)
+                @test inner_product(res[j], tens[dim]) ≈ 1.0 atol=1e-4
+            end
+        else
+            TENSOR .= tenr
+            break
+        end
     end
 end
 
-
+TENSOR_RC = right_canonical(TENSOR)
+for j=1:2
+    TENSOR_RC = right_canonical(TENSOR_RC)
+end
+VALS = eigvals(fixed_mat_2(trm(TENSOR_RC), 10))
+println(
+    group = vals_group(VALS)
+)

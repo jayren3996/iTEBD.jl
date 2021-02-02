@@ -44,11 +44,14 @@ import .iTEBD: spinmat
     @time for i=1:1000
         mps = sys(mps)
     end
+    @test inner_product(mps, AKLT_MPS) ≈ 1.0 atol=1e-5
+    if size(mps.Γ[1]) != (2, 3, 2)
+        mps = canonical(mps, trim=true, bound= rdim)
+    end
     @test size(mps.Γ[1]) == (2, 3, 2)
     @test size(mps.Γ[2]) == (2, 3, 2)
     @test mps.λ[1] ≈ [1/sqrt(2), 1/sqrt(2)] atol=1e-5
     @test mps.λ[2] ≈ [1/sqrt(2), 1/sqrt(2)] atol=1e-5
-    @test inner_product(mps, AKLT_MPS) ≈ 1.0 atol=1e-5
 end
 #---------------------------------------------------------------------------------------------------
 @testset "AKLT_iTEBD_3" begin
@@ -74,26 +77,6 @@ end
     @test mps.λ[3] ≈ [1/sqrt(2), 1/sqrt(2)] atol=1e-5
     @test inner_product(mps, AKLT_MPS_3) ≈ 1.0 atol=1e-5
 end
-#---------------------------------------------------------------------------------------------------
-# Test Real-time iTEBD
-#---------------------------------------------------------------------------------------------------
-@testset "AKLT_DYNAMICS" begin
-    dt = 0.1
-    rdim = 50
-    H = begin
-        ss = spinmat("xx",3) + spinmat("yy",3) + spinmat("zz",3)
-        ss + 1/3*ss^2 + 2/3*I(9)
-    end
-    sys = itebd(H, dt, mode="r", bound=rdim)
-    mps = deepcopy(AKLT_MPS)
-    # Best: 0.85s
-    @time for i=1:1000
-        mps = sys(mps)
-        @test inner_product(mps, AKLT_MPS) ≈ 1.0 atol=1e-5
-    end
-    @test size(mps.Γ[1]) == (2, 3, 2)
-    @test size(mps.Γ[2]) == (2, 3, 2)
-end
 
 #---------------------------------------------------------------------------------------------------
 # Test Block-canonical
@@ -112,13 +95,11 @@ end
         # GHZ under random unitary rotation
         rand_U = exp( -1im * Hermitian( rand(2, 2) ) )
         @tensor GHZ_RU[:] := rand_U[-1,1] * GHZ[1,-2,2] * rand_U'[2,-3]
-        nres, tres = block_canonical(GHZ_RU)
-        @test length(nres) == 2
-        @test length(tres) == 2
-        @test nres[1] ≈ 1.0 atol = 1e-5
-        @test nres[2] ≈ 1.0 atol = 1e-5
-        test1 = checkres(tres[1])
-        test2 = checkres(tres[2])
+        res = block_canonical(GHZ_RU)
+        @test length(res) == 2
+
+        test1 = checkres(res[1])
+        test2 = checkres(res[2])
         @test any(test1)
         @test any(test2)
         @test test1 .+ test2 == [1, 1]
@@ -127,13 +108,12 @@ end
         rand_V = rand(2, 2) + I(2)
         rand_Vi = inv(rand_V)
         @tensor GHZ_RV[:] := rand_V[-1,1] * GHZ[1,-2,2] * rand_Vi[2,-3]
-        nres, tres = block_canonical(GHZ_RV)
-        @test length(nres) == 2
-        @test length(tres) == 2
-        @test nres[1] ≈ 1.0 atol = 1e-5
-        @test nres[2] ≈ 1.0 atol = 1e-5
-        test1 = checkres(tres[1])
-        test2 = checkres(tres[2])
+        res = block_canonical(GHZ_RV)
+
+        @test length(res) == 2
+
+        test1 = checkres(res[1])
+        test2 = checkres(res[2])
         @test any(test1)
         @test any(test2)
         @test test1 .+ test2 == [1, 1]
@@ -148,26 +128,22 @@ end
         # Double AKLT under random unitary rotation
         rand_U = exp( -1im * Hermitian( rand(4, 4) ) )
         @tensor double_aklt_RU[:] := rand_U[-1,1] * double_aklt[1,-2,2] * rand_U'[2,-3]
-        nres, tres = block_canonical(double_aklt)
-        @test length(nres) == 2
-        @test length(tres) == 2
-        @test nres[1] ≈ 1.0 atol = 1e-5
-        @test nres[2] ≈ 1.0 atol = 1e-5
-        @test inner_product(AKLT, tres[1]) ≈ 1.0 atol=1e-5
-        @test inner_product(AKLT, tres[2]) ≈ 1.0 atol=1e-5
+        res = block_canonical(double_aklt)
+
+        @test length(res) == 2
+
+        @test inner_product(AKLT, res[1]) ≈ 1.0 atol=1e-5
+        @test inner_product(AKLT, res[2]) ≈ 1.0 atol=1e-5
 
         # Double AKLT under random non-unitary rotation
         rand_V = rand(4, 4)
         rand_Vi = inv(rand_V)
         @tensor double_aklt_RV[:] := rand_V[-1,1] * double_aklt[1,-2,2] * rand_Vi[2,-3]
-        nres, tres = block_canonical(double_aklt)
-        @test length(nres) == 2
-        @test length(tres) == 2
-        @test nres[1] ≈ 1.0 atol = 1e-5
-        @test nres[2] ≈ 1.0 atol = 1e-5
-        @test inner_product(AKLT, tres[1]) ≈ 1.0 atol=1e-5
-        @test inner_product(AKLT, tres[2]) ≈ 1.0 atol=1e-5
+        res = block_canonical(double_aklt)
+
+        @test length(res) == 2
+
+        @test inner_product(AKLT, res[1]) ≈ 1.0 atol=1e-5
+        @test inner_product(AKLT, res[2]) ≈ 1.0 atol=1e-5
     end
 end
-
-
