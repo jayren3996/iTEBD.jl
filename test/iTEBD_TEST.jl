@@ -30,7 +30,7 @@ pxp_evolving = itebd(HPXP, 0.1, bound=400)
 Z1_MPS = begin
     A = zeros(1, 2, 1)
     A[1, 2, 1] = 1
-    iMPS([A, A])
+    iMPS(ComplexF64, [A, A])
 end
 
 Z2_MPS = begin
@@ -38,7 +38,7 @@ Z2_MPS = begin
     B = zeros(1, 2, 1)
     A[1, 1, 1] = 1
     B[1, 2, 1] = 1
-    iMPS([A, B])
+    iMPS(ComplexF64, [A, B])
 end
 
 Z1_EE = zeros(length(Z1_TIME))

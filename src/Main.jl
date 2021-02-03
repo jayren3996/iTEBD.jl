@@ -40,15 +40,9 @@ function (engin::iTEBD_Engine)(mps::iMPS)
     qdim = size(mps.Γ[1], 2)
     gdim = size(gate, 1)
     nsite = round(Int64, log(qdim, gdim))
-    gtype = eltype(engin.gate)
-    mps_in = if gtype <: Complex
-        mps_promote_type(gtype, mps)
-    else
-        deepcopy(mps)
-    end
     for i = 1:mps.n
         inds = i:i+nsite-1
-        applygate!(mps_in, gate, inds, renormalize=renormalize, bound=bound, tol=tol)
+        applygate!(mps, gate, inds, renormalize=renormalize, bound=bound, tol=tol)
     end
     mps_in
 end
