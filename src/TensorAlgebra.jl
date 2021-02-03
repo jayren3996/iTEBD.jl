@@ -99,9 +99,10 @@ end
 # --λ--Γ--  ==> --Γ1--λ1--Γ2--λ2-- ... --Γn--λn--
 #---------------------------------------------------------------------------------------------------
 function svd_trim(
-    mat::AbstractMatrix,
+    mat::AbstractMatrix;
     bound::Integer=BOUND,
-    tol::Real=SVDTOL
+    tol::Real=SVDTOL,
+    renormalize=false
 )
     res = svd(mat)
     vals = res.S
@@ -113,6 +114,9 @@ function svd_trim(
     U = res.U[:, 1:len]
     S = vals[1:len]
     V = res.Vt[1:len, :]
+    if renormalize
+        S ./= norm(S)
+    end
     U, S, V
 end
 #---------------------------------------------------------------------------------------------------
@@ -129,10 +133,7 @@ function tensor_svd(
     """
     α, d1, d2, β = size(T)
     mat = reshape(T, α*d1, :)
-    U, S, V = svd_trim(mat, bound, tol)
-    if renormalize
-        S ./= norm(S)
-    end
+    U, S, V = svd_trim(mat, bound=bound, tol=tol, renormalize=renormalize)
     u = reshape(U, α, d1, :)
     v = reshape(V, :, d2, β)
     u, S, v
@@ -180,20 +181,24 @@ end
 #      |          |       |        ...   |
 # --λ--Γ--  ==> --Γ1--λ1--Γ2--λ2-- ... --Γn--λn--
 #---------------------------------------------------------------------------------------------------
-function applygate!(
+function tensor_applygate!(
     G::AbstractMatrix{<:Number},
-    Γ::AbstractVector{<:AbstractArray{<:Number, 3}},
+    Γs::AbstractVector{<:AbstractArray{<:Number, 3}},
     λl::AbstractVector{<:Number},
     λr::AbstractVector{<:Number};
     renormalize::Bool=false,
     bound::Integer=BOUND,
     tol::Real=SVDTOL
 )
-    n = length(Γ)
-    ΓΓ = tensor_group(Γ)
-    tensor_lmul!(λl, ΓΓ)
-    GΓΓ = tensor_umul(G, ΓΓ)
-    tensor_decomp!(GΓΓ, λl, λr, n, renormalize=renormalize, bound=bound, tol=tol)
+    n = length(Γs)
+    if n == 1
+        GΓ = tensor_umul(G, Γ[1])
+        return [GΓ], [λr]
+    end
+    Γ = tensor_group(Γs)
+    tensor_lmul!(λl, Γ)
+    GΓ = tensor_umul(G, Γ)
+    tensor_decomp!(GΓ, λl, λr, n, renormalize=renormalize, bound=bound, tol=tol)
 end
 #---------------------------------------------------------------------------------------------------
 # General transfer matrix
@@ -277,3 +282,7 @@ function otrm(
     M
 end
 
+function tensor_renormalize!(Γ::Array{<:Number, 3})
+    Γ_norm = sqrt(inner_product(Γ))
+    Γ ./= Γ_norm
+end

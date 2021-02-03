@@ -1,5 +1,5 @@
 #---------------------------------------------------------------------------------------------------
-# MPS TYPE
+# iMPS TYPE
 #
 # Parameters:
 # Γ : Vector of tensors.
@@ -7,29 +7,53 @@
 # n : Number of tensors in the periodic blocks.
 #---------------------------------------------------------------------------------------------------
 export iMPS
-"""
-    iMPS(Γ, λ, n)
-
-iMPS type 
-
-# Parameters:
-
-Γ : Vector of tensors.
-
-λ : Vector of Schmidt values.
-
-n : Number of tensors in the periodic blocks.
-"""
-struct iMPS{TΓ<:Number, Tλ<:Number}
-    Γ::Vector{Array{TΓ, 3}}
-    λ::Vector{Vector{Tλ}}
-    n::Integer
+struct iMPS{T<:Number}
+    Γ::Vector{Array{T, 3}}
+    λ::Vector{Vector{Float64}}
+    n::Int64
 end
 #---------------------------------------------------------------------------------------------------
-function iMPS(Γ::AbstractVector{<:AbstractArray{<:Number, 3}})
-    n = length(Γ)
-    λ = [ones(size(Γi, 3)) for Γi in Γ]
+function iMPS(
+    T::DataType,
+    Γs::AbstractVector{<:AbstractArray{<:Number, 3}}
+)
+    n = length(Γs)
+    Γ = Array{T}.(Γs)
+    λ = [ones(Float64, size(Γi, 3)) for Γi in Γs]
     iMPS(Γ, λ, n)
+end
+function iMPS(Γs::AbstractVector{<:AbstractArray{<:Number, 3}})
+    type_list = eltype.(Γs)
+    T = promote_type(type_list...)
+    iMPS(T, Γs)
+end
+
+#---------------------------------------------------------------------------------------------------
+# BASIC PROPERTIES
+#---------------------------------------------------------------------------------------------------
+export get_data
+get_data(mps::iMPS) = mps.Γ, mps.λ, mps.n
+eltype(::iMPS{T}) where T = T
+function getindex(mps::iMPS, i::Integer)
+    i = mod(i-1, mps.n) + 1
+    mps.Γ[i], mps.λ[i]
+end
+function setindex!(
+    mps::iMPS, 
+    v::Tuple{<:AbstractArray{<:Number, 3}, <:AbstractVector{<:Real}},
+    i::Integer
+)
+    i = mod(i-1, mps.n) + 1
+    mps.Γ[i] = v[1]
+    mps.λ[i] = v[2]
+end
+function mps_promote_type(
+    T::DataType,
+    mps::iMPS
+)
+    Γ, λ, n = get_data(mps)
+    Γ_new = Array{T}.(Γ)
+    iMPS(Γ_new, λ, n)
 end
 
 #---------------------------------------------------------------------------------------------------
@@ -40,17 +64,18 @@ end
 #---------------------------------------------------------------------------------------------------
 export rand_iMPS
 function rand_iMPS(
+    T::DataType,
     n::Integer,
     d::Integer,
     dim::Integer
 )
-    Γ = [rand(dim, d, dim) for i=1:n]
-    λ = [ones(dim) for i=1:n]
+    Γ = [rand(T, dim, d, dim) for i=1:n]
+    λ = [ones(Float64, dim) for i=1:n]
     iMPS(Γ, λ, n)
 end
-
+rand_iMPS(n, d, dim) = rand_iMPS(Float64, n, d, dim)
 #---------------------------------------------------------------------------------------------------
-# BASIC MANIPULATION
+# MANIPULATION
 #
 # 1. conj       : Complex conjugation of iMPS.
 # 2. applygate! : Apply gate to iMPS, return the result. The initial one will be altered.
@@ -58,53 +83,47 @@ end
 # 4. entropy    : Return entanglement entropy across bond i.
 #---------------------------------------------------------------------------------------------------
 function conj(mps::iMPS)
-    Γ, λ, n = mps.Γ, mps.λ, mps.n
+    Γ, λ, n = get_data(mps)
     iMPS(conj.(Γ), λ, n)
 end
 #---------------------------------------------------------------------------------------------------
+export applygate!
 function applygate!(
-    G::AbstractMatrix{<:Number},
-    mps::iMPS;
+    mps::iMPS,
+    G::AbstractMatrix{<:Number};
     renormalize::Bool=false,
     bound::Int64=BOUND,
     tol::Float64=SVDTOL
 )
-    Γ, λ, n = mps.Γ, mps.λ, mps.n
-    Γ, λ = applygate!(G, Γ, λ[n], renormalize=renormalize, bound=bound, tol=tol)
-    iMPS(Γ, λ, n)
+    Γ, λ, n = get_data(mps)
+    Γ_new, λ_new = tensor_applygate!(G, Γ, λ[n], λ[n], renormalize=renormalize, bound=bound, tol=tol)
+    Γ .= Γ_new
+    λ .= λ_new
+    mps
 end
 #---------------------------------------------------------------------------------------------------
 function applygate!(
-    G::AbstractMatrix{<:Number},
     mps::iMPS,
+    G::AbstractMatrix{<:Number},
     inds::AbstractVector{<:Integer};
     renormalize::Bool=false,
     bound::Int64=BOUND,
     tol::Float64=SVDTOL
 )
     n = mps.n
-    inds = mod.(inds .- 1, n) .+ 1
-    indl = mod((inds[1]-2), n) + 1
-    indr = inds[end]
-    Γs = mps.Γ[inds]
-    λl = mps.λ[indl]
-    λr = mps.λ[indr]
-    Γs_new, λs_new = applygate!(G, Γs, λl, λr, renormalize=renormalize, bound=bound, tol=tol)
-    mps.Γ[inds] .= Γs_new
-    mps.λ[inds] .= λs_new
+    indm = mod.(inds .- 1, n) .+ 1
+    indl, indr = mod((inds[1]-2), n) + 1, indm[end]
+    Γs, λl, λr = mps.Γ[indm], mps.λ[indl], mps.λ[indr]
+    Γs_new, λs_new = tensor_applygate!(G, Γs, λl, λr, renormalize=renormalize, bound=bound, tol=tol)
+    mps.Γ[indm] .= Γs_new
+    mps.λ[indm] .= λs_new
     mps
 end
+
 #---------------------------------------------------------------------------------------------------
-function mps_promote_type(
-    T::DataType,
-    mps::iMPS
-)
-    Γ, λ, n = mps.Γ, mps.λ, mps.n
-    Γ_new = Array{T}.(Γ)
-    iMPS(Γ_new, λ, n)
-end
-#---------------------------------------------------------------------------------------------------
+export transfer_matrix
 gtrm(mps1::iMPS, mps2::iMPS) = gtrm(mps1.Γ, mps2.Γ)
+transfer_matrix(mps::iMPS) = gtrm(mps, mps)
 #---------------------------------------------------------------------------------------------------
 export entropy
 function entropy(
@@ -112,8 +131,8 @@ function entropy(
     i::Integer
 )
     j = mod(i-1, mps.n) + 1
-    λj = mps.λ[j].^2
-    entanglement_entropy(λj)
+    ρ = mps.λ[j].^2
+    entanglement_entropy(ρ)
 end
 
 #---------------------------------------------------------------------------------------------------

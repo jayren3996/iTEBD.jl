@@ -38,7 +38,7 @@ import .iTEBD: spinmat
         ss = spinmat("xx",3) + spinmat("yy",3) + spinmat("zz",3)
         ss + 1/3*ss^2 + 2/3*I(9)
     end
-    sys = itebd(H, dt, mode="i", bound=rdim)
+    sys = itebd(H, dt, mode=:i, bound=rdim)
     mps = rand_iMPS(2, 3, rdim)
     # Best: 0.85s
     @time for i=1:1000
@@ -61,7 +61,7 @@ end
         ss = spinmat("xx",3) + spinmat("yy",3) + spinmat("zz",3)
         ss + 1/3*ss^2 + 2/3*I(9)
     end
-    sys = itebd(H, dt, mode="i", bound=rdim)
+    sys = itebd(H, dt, mode=:i, bound=rdim)
     mps = rand_iMPS(3, 3, rdim)
     # Best: 0.85s
     @time for i=1:1000

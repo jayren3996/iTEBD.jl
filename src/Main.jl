@@ -1,11 +1,11 @@
 #---------------------------------------------------------------------------------------------------
 # iTEBD object
 #---------------------------------------------------------------------------------------------------
-struct iTEBD_Engine{T<:AbstractMatrix}
-    gate ::T
+struct iTEBD_Engine{T<:Number}
+    gate::Matrix{T}
     renormalize::Bool
     bound::Int64
-    tol  ::Float64
+    tol::Float64
 end
 #---------------------------------------------------------------------------------------------------
 export itebd
@@ -18,11 +18,11 @@ function itebd(
     tol::Float64=SVDTOL
 )
     gate = if mode == :r
-        exp(-1im * dt * H)
+        exp(-1im * dt * Array(H))
     elseif mode == :i
-        exp(-dt * H)
+        exp(-dt * Array(H))
     elseif mode == :g
-        H
+        Array(H)
     else
         error("Invalid mode: $mode.")
     end
@@ -48,7 +48,7 @@ function (engin::iTEBD_Engine)(mps::iMPS)
     end
     for i = 1:mps.n
         inds = i:i+nsite-1
-        applygate!(gate, mps_in, inds, renormalize=renormalize, bound=bound, tol=tol)
+        applygate!(mps_in, gate, inds, renormalize=renormalize, bound=bound, tol=tol)
     end
     mps_in
 end
