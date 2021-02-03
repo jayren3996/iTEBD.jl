@@ -101,7 +101,7 @@ end
 function svd_trim(
     mat::AbstractMatrix,
     bound::Integer=BOUND,
-    tol::AbstractFloat=SVDTOL
+    tol::Real=SVDTOL
 )
     res = svd(mat)
     vals = res.S
@@ -120,7 +120,7 @@ function tensor_svd(
     T::AbstractArray{<:Number, 4};
     renormalize::Bool=false,
     bound::Integer=BOUND,
-    tol::AbstractFloat=SVDTOL
+    tol::Real=SVDTOL
 )
     """
     renormalize : controls whether to normalize singular values.
@@ -139,39 +139,39 @@ function tensor_svd(
 end
 #---------------------------------------------------------------------------------------------------
 function tensor_decomp!(
-    tensor::AbstractArray{<:Number, 3},
-    λ::AbstractVector,
+    Γ::AbstractArray{<:Number, 3},
+    λl::AbstractVector{<:Real},
+    λr::AbstractVector{<:Real},
     n::Integer;
     renormalize::Bool=false,
     bound::Integer=BOUND,
-    tol::AbstractFloat=SVDTOL
+    tol::Real=SVDTOL
 )
-    β = size(tensor, 3)
-    d = round(Int, size(tensor, 2)^(1/n))
-    Ts = Vector{Array{eltype(tensor), 3}}(undef, n)
-    λs = Vector{Vector{eltype(λ)}}(undef, n)
-    Ti, λi = tensor, λ
+    β = size(Γ, 3)
+    d = round(Int, size(Γ, 2)^(1/n))
+    Γs = Vector{Array{eltype(Γ), 3}}(undef, n)
+    λs = Vector{Vector{eltype(λl)}}(undef, n)
+    Ti, λi = Γ, λl
     for i=1:n-2
-        Ti = reshape(Ti, size(Ti,1), d, :, β)
-        Ai, Λ, Ti = tensor_svd(Ti, renormalize=renormalize, bound=bound, tol=tol)
+        Ti_reshaped = reshape(Ti, size(Ti,1), d, :, β)
+        Ai, Λ, Ti = tensor_svd(Ti_reshaped, renormalize=renormalize, bound=bound, tol=tol)
         tensor_lmul!(1 ./ λi, Ai)
         tensor_rmul!(Ai, Λ)
-        Ts[i] = Ai
+        tensor_lmul!(Λ, Ti)
+        Γs[i] = Ai
         λs[i] = Λ
         λi = Λ
-        tensor_lmul!(λi, Ti)
     end
-    Ti = reshape(Ti, size(Ti,1), d, :, β)
-    Ai, Λ, Ti = tensor_svd(Ti, renormalize=renormalize, bound=bound, tol=tol)
+    Ti_reshaped = reshape(Ti, size(Ti,1), d, :, β)
+    Ai, Λ, Ti = tensor_svd(Ti_reshaped, renormalize=renormalize, bound=bound, tol=tol)
     tensor_lmul!(1 ./ λi, Ai)
     tensor_rmul!(Ai, Λ)
-    Ts[n-1] = Ai
+    Γs[n-1] = Ai
     λs[n-1] = Λ
-    Ts[n] = Ti
-    λs[n] = λ
-    Ts, λs
+    Γs[n] = Ti
+    λs[n] = λr
+    Γs, λs
 end
-
 #---------------------------------------------------------------------------------------------------
 # Apply Gate
 #
@@ -183,18 +183,18 @@ end
 function applygate!(
     G::AbstractMatrix{<:Number},
     Γ::AbstractVector{<:AbstractArray{<:Number, 3}},
-    λ::AbstractVector{<:Number};
+    λl::AbstractVector{<:Number},
+    λr::AbstractVector{<:Number};
     renormalize::Bool=false,
     bound::Integer=BOUND,
-    tol::AbstractFloat=SVDTOL
+    tol::Real=SVDTOL
 )
     n = length(Γ)
     ΓΓ = tensor_group(Γ)
-    tensor_lmul!(λ, ΓΓ)
+    tensor_lmul!(λl, ΓΓ)
     GΓΓ = tensor_umul(G, ΓΓ)
-    tensor_decomp!(GΓΓ, λ, n, renormalize=renormalize, bound=bound, tol=tol)
+    tensor_decomp!(GΓΓ, λl, λr, n, renormalize=renormalize, bound=bound, tol=tol)
 end
-
 #---------------------------------------------------------------------------------------------------
 # General transfer matrix
 # 

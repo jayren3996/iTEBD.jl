@@ -8,29 +8,25 @@ struct iTEBD_Engine{T<:AbstractMatrix}
     tol  ::Float64
 end
 #---------------------------------------------------------------------------------------------------
-function cycle(
-    mps::iMPS, 
-    i::Integer=2
-)
-    n = mps.n
-    j = mod(i-1, n) + 1
-    pos_cycled = [j:n..., 1:(j-1)...]
-    Γ_cycled = mps.Γ[pos_cycled]
-    λ_cycled = mps.λ[pos_cycled]
-    iMPS(Γ_cycled, λ_cycled, n)
-end
-#---------------------------------------------------------------------------------------------------
 export itebd
 function itebd(
     H::AbstractMatrix{<:Number},
-    dt::AbstractFloat;
-    mode::String="r",
+    dt::Real;
+    mode::Symbol=:r,
     renormalize::Bool=true,
     bound::Int64=BOUND,
     tol::Float64=SVDTOL
 )
-    expH = mode=="i" ? exp(-dt * H) : exp(-1im * dt * H)
-    iTEBD_Engine(expH, renormalize, bound, tol)
+    gate = if mode == :r
+        exp(-1im * dt * H)
+    elseif mode == :i
+        exp(-dt * H)
+    elseif mode == :g
+        H
+    else
+        error("Invalid mode: $mode.")
+    end
+    iTEBD_Engine(gate, renormalize, bound, tol)
 end
 #---------------------------------------------------------------------------------------------------
 # Run iTEBD

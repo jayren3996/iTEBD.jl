@@ -82,13 +82,16 @@ function applygate!(
     bound::Int64=BOUND,
     tol::Float64=SVDTOL
 )
-    inds = mod.(inds .- 1, mps.n) .+ 1
+    n = mps.n
+    inds = mod.(inds .- 1, n) .+ 1
+    indl = mod((inds[1]-2), n) + 1
+    indr = inds[end]
     Γs = mps.Γ[inds]
-    λs = mps.λ[inds]
-    Γs_new, λs_new = applygate!(G, Γs, λs[end], renormalize=renormalize, bound=bound, tol=tol)
-    Γ, λ = mps.Γ, mps.λ
-    Γ[inds] = Γs_new
-    λ[inds] = λs_new
+    λl = mps.λ[indl]
+    λr = mps.λ[indr]
+    Γs_new, λs_new = applygate!(G, Γs, λl, λr, renormalize=renormalize, bound=bound, tol=tol)
+    mps.Γ[inds] .= Γs_new
+    mps.λ[inds] .= λs_new
     mps
 end
 #---------------------------------------------------------------------------------------------------
@@ -121,7 +124,7 @@ function canonical(
     mps::iMPS;
     trim::Bool=false,
     bound::Integer=BOUND,
-    tol::AbstractFloat=SVDTOL
+    tol::Real=SVDTOL
 )
     Γ, n = mps.Γ, mps.n
     Γ, λ = if trim

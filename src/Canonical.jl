@@ -62,7 +62,7 @@ function krylov_eigen_iteration!(
     va::Vector,
     vb::Vector,
     mat::AbstractMatrix,
-    tol::AbstractFloat,
+    tol::Real,
     maxitr::Integer
 )
     itr = 1
@@ -88,7 +88,7 @@ end
 function fixed_point(
     mat::AbstractMatrix,
     v0::AbstractVector;
-    tol::AbstractFloat=1e-10,
+    tol::Real=1e-10,
     maxitr::Integer=10000
 )
     # choose pmat to avoid other exp(iθ) eigen values
@@ -111,7 +111,7 @@ end
 #---------------------------------------------------------------------------------------------------
 function right_canonical(
     Γ::AbstractArray{<:Number, 3};
-    tol::AbstractFloat=1e-17,
+    tol::Real=1e-17,
     renormalize=true
 )
     α = size(Γ, 1)
@@ -140,7 +140,7 @@ end
 function fixed_mat_2(
     mat::AbstractMatrix, 
     α::Integer, 
-    tol::AbstractFloat=1e-10,
+    tol::Real=1e-10,
     maxitr::Integer=10000
 )
     ρ = Hermitian(rand(ComplexF64, α, α))
@@ -151,7 +151,7 @@ end
 #---------------------------------------------------------------------------------------------------
 function vals_group(
     vals::Vector;
-    sorttol::AbstractFloat=1e-3
+    sorttol::Real=1e-3
 )
     pos = Vector{Vector{Int64}}(undef, 0)
     current_val = vals[1]
@@ -171,9 +171,9 @@ end
 #---------------------------------------------------------------------------------------------------
 function block_decomp(
     Γ::AbstractArray{<:Number, 3};
-    tol::AbstractFloat=1e-10,
+    tol::Real=1e-10,
     maxitr::Integer=10000,
-    sorttol::AbstractFloat=1e-3
+    sorttol::Real=1e-3
 )
     α = size(Γ, 1)
     if α == 1
@@ -197,13 +197,12 @@ function block_decomp(
     end
     res
 end
-
 #---------------------------------------------------------------------------------------------------
 function block_trim(
     Γ::AbstractArray{<:Number, 3};
-    tol::AbstractFloat=1e-5,
+    tol::Real=1e-5,
     maxitr::Integer=10000,
-    sorttol::AbstractFloat=1e-3
+    sorttol::Real=1e-3
 )
     α = size(Γ, 1)
     if α == 1
@@ -242,8 +241,8 @@ function schmidt_canonical(
     Γ::AbstractArray{<:Number,3};
     renormalize::Bool=false,
     bound::Integer=BOUND,
-    tol::AbstractFloat=SVDTOL,
-    zero_tol::AbstractFloat=1e-14
+    tol::Real=SVDTOL,
+    zero_tol::Real=1e-14
 )
     α = size(Γ, 1)
     lmat = begin
@@ -277,14 +276,14 @@ function schmidt_canonical(
     Ts::AbstractVector{<:AbstractArray{<:Number, 3}};
     renormalize=true,
     bound::Integer=BOUND,
-    tol::AbstractFloat=SVDTOL
+    tol::Real=SVDTOL
 )
     n = length(Ts)
     T = tensor_group(Ts)
     T_RC = right_canonical(T)
     A, λ = schmidt_canonical(T_RC, renormalize=renormalize)
     tensor_lmul!(λ, A)
-    tensor_decomp!(A, λ, n, renormalize=renormalize, bound=bound, tol=tol)
+    tensor_decomp!(A, λ, λ, n, renormalize=renormalize, bound=bound, tol=tol)
 end
 #---------------------------------------------------------------------------------------------------
 export canonical_trim
@@ -292,7 +291,7 @@ function canonical_trim(
     Ts::AbstractVector{<:AbstractArray{<:Number, 3}};
     renormalize=true,
     bound::Integer=BOUND,
-    tol::AbstractFloat=SVDTOL
+    tol::Real=SVDTOL
 )
     n = length(Ts)
     T = tensor_group(Ts)
@@ -300,5 +299,5 @@ function canonical_trim(
     T_BRC = block_trim(T_RC)
     A, λ = schmidt_canonical(T_BRC, renormalize=renormalize)
     tensor_lmul!(λ, A)
-    tensor_decomp!(A, λ, n, renormalize=renormalize, bound=bound, tol=tol)
+    tensor_decomp!(A, λ, λ, n, renormalize=renormalize, bound=bound, tol=tol)
 end

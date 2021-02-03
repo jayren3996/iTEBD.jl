@@ -36,7 +36,7 @@ import .iTEBD: spinmat
     rdim = 50
     H = begin
         ss = spinmat("xx",3) + spinmat("yy",3) + spinmat("zz",3)
-        h2 = ss + 1/3*ss^2
+        ss + 1/3*ss^2 + 2/3*I(9)
     end
     sys = itebd(H, dt, mode="i", bound=rdim)
     mps = rand_iMPS(2, 3, rdim)
@@ -59,8 +59,7 @@ end
     rdim = 50
     H = begin
         ss = spinmat("xx",3) + spinmat("yy",3) + spinmat("zz",3)
-        p2 = ss + 1/3*ss^2 + 2/3*I(9)
-        kron(p2, I(3)) + kron(I(3), p2)
+        ss + 1/3*ss^2 + 2/3*I(9)
     end
     sys = itebd(H, dt, mode="i", bound=rdim)
     mps = rand_iMPS(3, 3, rdim)
