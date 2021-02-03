@@ -36,12 +36,12 @@ With a set of given tensors, a `iMPS` object can be explicitly constructed by `i
 
 ### Hamiltonian
 
-An Hamiltonian is just an  `Array{T,2}`. There is also a helper function `spinmat` for constructing spin Hamiltonian. For example, AKLT Hamiltoniancan be constructed by:
+An Hamiltonian is just an  `Array{T,2}`. There is also a helper function `spin` for constructing spin Hamiltonian. For example, AKLT Hamiltoniancan be constructed by:
 
 ```julia
 hamiltonian = begin
-    SS = spinmat("xx", 3) + spinmat("yy", 3) + spinmat("zz", 3)
-    SS + 1/3 * SS^2 - 2/3 * spinmat("11", 3)
+    SS = spin("xx", 3) + spin("yy", 3) + spin("zz", 3)
+    SS + 1/3 * SS^2 - 2/3 * spin("11", 3)
 end
 ```
 
@@ -66,7 +66,7 @@ The ```iTEBD_Eigine``` can be constructed by the function ```itebd```:
 function itebd(
     H::AbstractMatrix{<:Number},
     dt::AbstractFloat;
-    mode::String="r",
+    mode::Symbol=:r,
     renormalize::Bool=true,
     bound::Int64=BOUND,
     tol::Float64=SVDTOL
@@ -86,13 +86,13 @@ end
 
 # Create AKLT Hamiltonian and iTEBD engine
 hamiltonian = begin
-    SS = spinmat("xx", 3) + spinmat("yy", 3) + spinmat("zz", 3)
-    SS + 1/3 * SS^2 + 2/3 * spinmat("11", 3)
+    SS = spin("xx", 3) + spin("yy", 3) + spin("zz", 3)
+    SS + 1/3 * SS^2 + 2/3 * spin("11", 3)
 end
 
 engine = begin
     time_step = 0.01
-    itebd(hamiltonian, time_step, mode="i")
+    itebd(hamiltonian, time_step, mode=:i)
 end
 
 # Exact AKLT ground state
