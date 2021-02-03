@@ -24,7 +24,7 @@ function spin(
 end
 #-----------------------------------------------------------------------------------------------------
 # General spin matrix
-function spinmat(
+function spin(
     s::String, 
     D::Integer
 )

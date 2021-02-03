@@ -56,8 +56,8 @@ end
 #---------------------------------------------------------------------------------------------------
 function right_canonical(
     Γ::AbstractArray{<:Number, 3};
-    zerotol::Real=ZEROTOL,
-    krylov_power::Integer=KRLOV_POWER
+    krylov_power::Integer=KRLOV_POWER,
+    zerotol::Real=ZEROTOL
 )
     trmat = trm(Γ)
     ρ = steady_mat(trmat, krylov_power=krylov_power)
@@ -120,9 +120,19 @@ end
 # 1. All-at-once method.
 # 2. Return multiple non-degenerate right-canonical form.
 #---------------------------------------------------------------------------------------------------
-export block_canonical
-function block_canonical(Γ::AbstractArray{<:Number, 3})
-    Γ_RC = right_canonical(Γ)
-    block_decomp(Γ_RC)
+function block_canonical(
+    Γ::AbstractArray{<:Number, 3};
+    krylov_power::Integer=KRLOV_POWER,
+    sorttol::Real=SORTTOL,
+    zerotol::Real=ZEROTOL,
+    trim::Bool=false
+)
+    Γ_RC = right_canonical(Γ, krylov_power=krylov_power, zerotol=zerotol)
+    res = if trim
+        block_trim(Γ_RC, krylov_power=krylov_power, sorttol=sorttol)
+    else
+        block_decomp(Γ_RC, krylov_power=krylov_power, sorttol=sorttol)
+    end
+    res
 end
 

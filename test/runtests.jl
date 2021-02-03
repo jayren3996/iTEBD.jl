@@ -3,6 +3,7 @@ using Test
 using LinearAlgebra
 using TensorOperations
 using .iTEBD
+import .iTEBD: block_canonical, spin
 #---------------------------------------------------------------------------------------------------
 # Constant Objects
 #---------------------------------------------------------------------------------------------------
@@ -24,41 +25,51 @@ const GHZ = begin
     tensor[2,2,2] = 1
     tensor
 end
+
 #---------------------------------------------------------------------------------------------------
 # Test imaginary-time iTEBD 
 #
 # 1. Imaginary-time evolving under AKLT Hamiltonian.
 # 2. The ourcome is compared to AKLT MPS.
 #---------------------------------------------------------------------------------------------------
-import .iTEBD: spinmat
 @testset "AKLT_iTEBD" begin
     dt = 0.1
     rdim = 50
+
     H = begin
-        ss = spinmat("xx",3) + spinmat("yy",3) + spinmat("zz",3)
+        ss = spin("xx",3) + spin("yy",3) + spin("zz",3)
         ss + 1/3*ss^2 + 2/3*I(9)
     end
+
     sys = itebd(H, dt, mode=:i, bound=rdim)
     mps = rand_iMPS(2, 3, rdim)
-    # Best: 0.85s
+    
+    println("First-time run:")
     @time for i=1:1000
         mps = sys(mps)
     end
     @test inner_product(mps, AKLT_MPS) ≈ 1.0 atol=1e-5
     if size(mps.Γ[1]) != (2, 3, 2)
-        mps = canonical(mps, trim=true, bound= rdim)
+        mps = canonical(mps, trim=true, bound=rdim)
     end
     @test size(mps.Γ[1]) == (2, 3, 2)
     @test size(mps.Γ[2]) == (2, 3, 2)
     @test mps.λ[1] ≈ [1/sqrt(2), 1/sqrt(2)] atol=1e-5
     @test mps.λ[2] ≈ [1/sqrt(2), 1/sqrt(2)] atol=1e-5
+    # Bench-Mark
+    # Best: 0.706260 seconds (233.26 k allocations: 644.534 MiB, 7.17% gc time)
+    println("Second-time run:")
+    mps = rand_iMPS(2, 3, rdim)
+    @time for i=1:1000
+        mps = sys(mps)
+    end
 end
 #---------------------------------------------------------------------------------------------------
 @testset "AKLT_iTEBD_3" begin
     dt = 0.1
     rdim = 50
     H = begin
-        ss = spinmat("xx",3) + spinmat("yy",3) + spinmat("zz",3)
+        ss = spin("xx",3) + spin("yy",3) + spin("zz",3)
         ss + 1/3*ss^2 + 2/3*I(9)
     end
     sys = itebd(H, dt, mode=:i, bound=rdim)
@@ -67,7 +78,7 @@ end
     @time for i=1:1000
         mps = sys(mps)
     end
-    mps = canonical(mps, trim=true, bound= rdim)
+    mps = canonical(mps, trim=true, bound=rdim)
     @test size(mps.Γ[1]) == (2, 3, 2)
     @test size(mps.Γ[2]) == (2, 3, 2)
     @test size(mps.Γ[3]) == (2, 3, 2)

@@ -22,6 +22,7 @@ function iMPS(
     λ = [ones(Float64, size(Γi, 3)) for Γi in Γs]
     iMPS(Γ, λ, n)
 end
+#---------------------------------------------------------------------------------------------------
 function iMPS(Γs::AbstractVector{<:AbstractArray{<:Number, 3}})
     type_list = eltype.(Γs)
     T = promote_type(type_list...)
@@ -33,11 +34,14 @@ end
 #---------------------------------------------------------------------------------------------------
 export get_data
 get_data(mps::iMPS) = mps.Γ, mps.λ, mps.n
+#---------------------------------------------------------------------------------------------------
 eltype(::iMPS{T}) where T = T
+#---------------------------------------------------------------------------------------------------
 function getindex(mps::iMPS, i::Integer)
     i = mod(i-1, mps.n) + 1
     mps.Γ[i], mps.λ[i]
 end
+#---------------------------------------------------------------------------------------------------
 function setindex!(
     mps::iMPS, 
     v::Tuple{<:AbstractArray{<:Number, 3}, <:AbstractVector{<:Real}},
@@ -47,6 +51,7 @@ function setindex!(
     mps.Γ[i] = v[1]
     mps.λ[i] = v[2]
 end
+#---------------------------------------------------------------------------------------------------
 function mps_promote_type(
     T::DataType,
     mps::iMPS
@@ -54,6 +59,16 @@ function mps_promote_type(
     Γ, λ, n = get_data(mps)
     Γ_new = Array{T}.(Γ)
     iMPS(Γ_new, λ, n)
+end
+#---------------------------------------------------------------------------------------------------
+export entropy
+function entropy(
+    mps::iMPS,
+    i::Integer
+)
+    j = mod(i-1, mps.n) + 1
+    ρ = mps.λ[j].^2
+    entanglement_entropy(ρ)
 end
 
 #---------------------------------------------------------------------------------------------------
@@ -74,6 +89,7 @@ function rand_iMPS(
     iMPS(Γ, λ, n)
 end
 rand_iMPS(n, d, dim) = rand_iMPS(Float64, n, d, dim)
+
 #---------------------------------------------------------------------------------------------------
 # MANIPULATION
 #
@@ -119,21 +135,27 @@ function applygate!(
     mps.λ[indm] .= λs_new
     mps
 end
-
+#---------------------------------------------------------------------------------------------------
+gtrm(mps1::iMPS, mps2::iMPS) = gtrm(mps1.Γ, mps2.Γ)
+#---------------------------------------------------------------------------------------------------
+export group
+group(mps::iMPS) = tensor_group(mps.Γ)
+#---------------------------------------------------------------------------------------------------
+export decomposition!
+function decomposition!(
+    Γ::AbstractArray{<:Number, 3},
+    λ::AbstractVector{<:Real},
+    n::Integer;
+    renormalize::Bool=false,
+    bound::Integer=BOUND,
+    tol::Real=SVDTOL
+)
+    Γs, λs = tensor_decomp!(Γ, λ, λ, n, renormalize=renormalize, bound=bound, tol=tol)
+    iMPS(Γs, λs, n)
+end
 #---------------------------------------------------------------------------------------------------
 export transfer_matrix
-gtrm(mps1::iMPS, mps2::iMPS) = gtrm(mps1.Γ, mps2.Γ)
 transfer_matrix(mps::iMPS) = gtrm(mps, mps)
-#---------------------------------------------------------------------------------------------------
-export entropy
-function entropy(
-    mps::iMPS,
-    i::Integer
-)
-    j = mod(i-1, mps.n) + 1
-    ρ = mps.λ[j].^2
-    entanglement_entropy(ρ)
-end
 
 #---------------------------------------------------------------------------------------------------
 # CANONICAL FORMS
@@ -142,14 +164,17 @@ export canonical
 function canonical(
     mps::iMPS;
     trim::Bool=false,
+    renormalize::Bool=true,
+    krylov_power::Integer=KRLOV_POWER,
     bound::Integer=BOUND,
-    tol::Real=SVDTOL
+    tol::Real=SVDTOL,
+    zerotol::Real=ZEROTOL,
+    sorttol::Real=SORTTOL,
 )
-    Γ, n = mps.Γ, mps.n
-    Γ, λ = if trim
-        canonical_trim(Γ, bound=bound, tol=tol)
-    else
-        schmidt_canonical(Γ, bound=bound, tol=tol)
+    Γ_group = group(mps)
+    if trim
+        Γ_group = block_canonical(Γ_group, trim=true, krylov_power=krylov_power, zerotol=zerotol, sorttol=sorttol)
     end
-    iMPS(Γ, λ, n)
+    Γ_new, λ = schmidt_canonical(Γ_group, krylov_power=krylov_power, renormalize=renormalize,bound=bound, tol=tol, zerotol=zerotol)
+    decomposition!(Γ_new, λ, mps.n, renormalize=renormalize, bound=bound, tol=tol)
 end
