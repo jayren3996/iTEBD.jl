@@ -22,7 +22,7 @@ function schmidt_canonical(
     U, S, V = svd_trim(Yt * X, bound=bound, tol=tol, renormalize=renormalize)
     R_mat = inv(Yt) * U * Diagonal(S)
     L_mat = V * inv(X)
-    @tensor Γ_new[:] := V[-1,1] * Γ[1,-2,2] * V'[2, -3]
+    Γ_new = canonical_gauging(Γ, R_mat, L_mat)
     Γ_new, S
 end
 #---------------------------------------------------------------------------------------------------

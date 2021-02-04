@@ -12,9 +12,9 @@ z2 = begin
 end
 
 const GA, GB = begin
-    sx = spin((1, "x"))
+    sx = spin((2, "x"))
     expH = exp(-1im * DT * sx)
-    gate(sx, [1]), gate(sx, [2])
+    gate(expH, [1]), gate(expH, [2])
 end
 
 const PA, PB = begin
@@ -26,11 +26,11 @@ const S = zeros(steps)
 
 for i=1:steps
     global DT, z2, GA, GB, PA, PB, S
-    applygate(z2, GA)
-    applygate(z2, GB)
-    applygate(z2, GA)
-    applygate(z2, GB)
-    z2 = canonical(z2)
+    applygate!(z2, GA)
+    applygate!(z2, GB)
+    applygate!(z2, PA)
+    applygate!(z2, PB)
+    #z2 = canonical(z2)
     EE = entropy(z2, 1)
     println("t = $(DT*i), S = $EE.")
     S[i] = EE
