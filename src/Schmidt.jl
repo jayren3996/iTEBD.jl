@@ -13,13 +13,12 @@ function schmidt_canonical(
     zerotol::Real=ZEROTOL
 )
     X, Yt = begin
-        trmat = trm(Γ)
         trmat_T = transpose(trm(Γ))
-        R = steady_mat(trmat, krylov_power=krylov_power)
-        L = steady_mat(trmat_T, krylov_power=krylov_power)
+        R = steady_mat(Γ, krylov_power=krylov_power)
+        L = steady_mat(Γ, krylov_power=krylov_power, dir=:l)
         R_res = cholesky(R)
         L_res = cholesky(L)
-        R_res.L, transpose(L_res.U)
+        R_res.L, L_res.U
     end
     U, S, V = svd_trim(Yt * X, bound=bound, tol=tol, renormalize=renormalize)
     R_mat = inv(Yt) * U * Diagonal(S)

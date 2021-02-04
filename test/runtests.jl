@@ -36,18 +36,21 @@ end
     dt = 0.1
     rdim = 50
 
-    H = begin
+    GA, GB = begin
         ss = spin("xx",3) + spin("yy",3) + spin("zz",3)
-        ss + 1/3*ss^2 + 2/3*I(9)
+        H = ss + 1/3*ss^2 + 2/3*I(9)
+        expH = exp(- dt * H)
+        gate(expH, [1,2], bound=rdim), gate(expH, [2,1], bound=rdim)
     end
-
-    sys = itebd(H, dt, mode=:i, bound=rdim)
+    
     mps = rand_iMPS(2, 3, rdim)
     
     println("First-time run:")
     @time for i=1:1000
-        mps = sys(mps)
+        applygate!(mps, GA)
+        applygate!(mps, GB)
     end
+
     @test inner_product(mps, AKLT_MPS) ≈ 1.0 atol=1e-5
     if size(mps.Γ[1]) != (2, 3, 2)
         mps = canonical(mps, trim=true, bound=rdim)
@@ -56,29 +59,37 @@ end
     @test size(mps.Γ[2]) == (2, 3, 2)
     @test mps.λ[1] ≈ [1/sqrt(2), 1/sqrt(2)] atol=1e-5
     @test mps.λ[2] ≈ [1/sqrt(2), 1/sqrt(2)] atol=1e-5
+
     # Bench-Mark
-    # Best: 0.706260 seconds (233.26 k allocations: 644.534 MiB, 7.17% gc time)
+    # Best: 0.650156 seconds (248.39 k allocations: 554.746 MiB, 4.90% gc time)
     println("Second-time run:")
     mps = rand_iMPS(2, 3, rdim)
     @time for i=1:1000
-        mps = sys(mps)
+        applygate!(mps, GA)
+        applygate!(mps, GB)
     end
 end
 #---------------------------------------------------------------------------------------------------
 @testset "AKLT_iTEBD_3" begin
     dt = 0.1
     rdim = 50
-    H = begin
+
+    GA, GB, GC = begin
         ss = spin("xx",3) + spin("yy",3) + spin("zz",3)
-        ss + 1/3*ss^2 + 2/3*I(9)
+        H = ss + 1/3*ss^2 + 2/3*I(9)
+        expH = exp(- dt * H)
+        gate(expH, [1,2], bound=rdim), gate(expH, [2,3], bound=rdim), gate(expH, [3,1], bound=rdim)
     end
-    sys = itebd(H, dt, mode=:i, bound=rdim)
+
     mps = rand_iMPS(3, 3, rdim)
-    # Best: 0.85s
+
     @time for i=1:1000
-        mps = sys(mps)
+        applygate!(mps, GA)
+        applygate!(mps, GB)
+        applygate!(mps, GC)
     end
     mps = canonical(mps, trim=true, bound=rdim)
+
     @test size(mps.Γ[1]) == (2, 3, 2)
     @test size(mps.Γ[2]) == (2, 3, 2)
     @test size(mps.Γ[3]) == (2, 3, 2)

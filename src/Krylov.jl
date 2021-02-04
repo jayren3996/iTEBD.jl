@@ -4,24 +4,43 @@
 # Find dominent eigensystem by iterative multiplication.
 # Krylov method ensures Hermicity and semi-positivity.
 #---------------------------------------------------------------------------------------------------
+# Quantum channel
+function kraus!(
+    ρ::AbstractMatrix,
+    KL::AbstractArray{<:Number, 3},
+    KU::AbstractArray{<:Number, 3},
+    ρ0::AbstractMatrix,
+    dir::Symbol=:r
+)
+    if dir == :r
+        @tensor ρ[:] = KL[-1, 3, 1] * ρ0[1, 2] * KU[-2, 3, 2]
+    elseif dir == :l
+        @tensor ρ[:] = KU[1, 3, -1] * ρ0[1, 2] * KL[2, 3, -2]
+    else
+        error("Illegal direction: $dir.")
+    end
+end
+
 # Check error.
 function krylov_eigen!(
-    va::Vector,
-    mat::AbstractMatrix;
+    ρ::AbstractMatrix,
+    KL::AbstractArray{<:Number, 3},
+    KU::AbstractArray{<:Number, 3};
+    dir::Symbol=:r,
     tol::Real=1e-10,
-    maxitr::Integer=1000,
+    maxitr::Integer=100,
     warning::Bool=true
 )
-    vb = similar(va)
-    vc = similar(va)
+    ρb = similar(ρ)
+    ρc = similar(ρ)
     val = NaN
     err = NaN
     for i=1:maxitr
-        mul!(vb, mat, va)
-        mul!(vc, mat, vb)
-        @. va = vb + vc
-        normalize!(va)
-        val_new = dot(va, vb)
+        kraus!(ρb, KL, KU, ρ, dir)
+        kraus!(ρc, KL, KU, ρb, dir)
+        @. ρ = ρb + ρc
+        val_new = norm(ρ)
+        ρ ./= val_new
         err = abs(val - val_new)
         if err < tol 
             return 
@@ -35,40 +54,42 @@ end
 #---------------------------------------------------------------------------------------------------
 # With defined iteration times.
 function krylov_eigen!(
-    va::Vector,
-    mat::AbstractMatrix,
-    itr::Integer
+    ρ::AbstractMatrix,
+    KL::AbstractArray{<:Number, 3},
+    KU::AbstractArray{<:Number, 3},
+    itr::Integer;
+    dir::Symbol=:r
 )
-    vb = similar(va)
-    vc = similar(va)
+    ρb = similar(ρ)
+    ρc = similar(ρ)
     for i=1:itr
-        mul!(vb, mat, va)
-        mul!(vc, mat, vb)
-        @. va = vb + vc
-        normalize!(va)
+        kraus!(ρb, KL, KU, ρ, dir)
+        kraus!(ρc, KL, KU, ρb, dir)
+        @. ρ = ρb + ρc
+        normalize!(ρ)
     end
 end
 #---------------------------------------------------------------------------------------------------
 # steady state from identity mat
 function steady_mat(
-    mat::AbstractMatrix;
+    K::AbstractArray{<:Number, 3};
+    dir::Symbol=:r,
     krylov_power::Integer=KRLOV_POWER,
 )
-    α = round(Int64, sqrt(size(mat, 1)))
-    ρ = Array{eltype(mat)}(I(α))
-    v0 = reshape(ρ, :)
-    krylov_eigen!(v0, mat, krylov_power)
+    α = size(K, 1)
+    ρ = Array{eltype(K)}(I(α))
+    krylov_eigen!(ρ, K, conj(K), krylov_power, dir=dir)
     Hermitian(ρ)
 end
 #---------------------------------------------------------------------------------------------------
 # Random fixed-point matrix.
 function fixed_point_mat(
-    mat::AbstractMatrix;
+    K::AbstractArray{<:Number, 3};
+    dir::Symbol=:r,
     krylov_power::Integer=KRLOV_POWER,
 )
-    α = round(Int64, sqrt(size(mat, 1)))
+    α = size(K, 1)
     ρ = rand(ComplexF64, α, α) |> Hermitian |> Array
-    v0 = reshape(ρ, :)
-    krylov_eigen!(v0, mat, krylov_power)
+    krylov_eigen!(ρ, K, conj(K), krylov_power, dir=dir)
     Hermitian(ρ)
 end

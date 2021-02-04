@@ -59,8 +59,7 @@ function right_canonical(
     krylov_power::Integer=KRLOV_POWER,
     zerotol::Real=ZEROTOL
 )
-    trmat = trm(Γ)
-    ρ = steady_mat(trmat, krylov_power=krylov_power)
+    ρ = steady_mat(Γ, krylov_power=krylov_power)
     L, R = mat_sqrt(ρ, zerotol=zerotol)
     canonical_gauging(Γ, L, R)
 end
@@ -77,11 +76,7 @@ function block_decomp(
     krylov_power::Integer=KRLOV_POWER,
     sorttol::Real=SORTTOL
 )
-    vals, vecs = begin
-        trmat = trm(Γ)
-        fixed_mat = fixed_point_mat(trmat, krylov_power=krylov_power)
-        eigen(fixed_mat)
-    end   
+    vals, vecs = fixed_point_mat(Γ, krylov_power=krylov_power) |> eigen
     vgroup = vals_group(vals, sorttol=sorttol)
     res = begin
         num = length(vgroup)
@@ -101,14 +96,10 @@ function block_trim(
     krylov_power::Integer=KRLOV_POWER,
     sorttol::Real=SORTTOL
 )
-    vals, vecs = begin
-        trmat = trm(Γ)
-        fixed_mat = fixed_point_mat(trmat, krylov_power=krylov_power)
-        eigen(fixed_mat)
-    end
+    vals, vecs = fixed_point_mat(Γ, krylov_power=krylov_power) |> eigen
     p = begin
         vgroup = vals_group(vals, sorttol=sorttol)
-        i = argmin(length.(vgroup))
+        i = length.(vgroup) |> argmin
         vecs[:, vgroup[i]]
     end
     canonical_gauging(Γ, p, p')

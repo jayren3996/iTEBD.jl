@@ -17,8 +17,8 @@ using KrylovKit
 import Base: eltype, getindex, setindex!
 import LinearAlgebra: conj
 
-include("MPS.jl")
-include("Main.jl")
+include("iMPS.jl")
+include("Gate.jl")
 include("TensorAlgebra.jl")
 include("Schmidt.jl")
 include("Block.jl")
