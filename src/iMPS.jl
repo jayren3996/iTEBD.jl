@@ -90,6 +90,7 @@ function rand_iMPS(
 end
 rand_iMPS(n, d, dim) = rand_iMPS(Float64, n, d, dim)
 #---------------------------------------------------------------------------------------------------
+export product_iMPS
 function product_iMPS(
     T::DataType,
     v::AbstractVector{<:AbstractVector{<:Number}}

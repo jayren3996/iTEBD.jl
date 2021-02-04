@@ -1,6 +1,6 @@
 using LinearAlgebra
 using iTEBD
-using iTEBD: spin
+using iTEBD: spin, product_iMPS
 
 const BOND = 100
 const DT = 0.1
@@ -13,7 +13,7 @@ end
 
 const GA, GB = begin
     sx = spin((1, "x"))
-    expH = exp(-1im * dt * sx)
+    expH = exp(-1im * DT * sx)
     gate(sx, [1]), gate(sx, [2])
 end
 
@@ -25,7 +25,7 @@ end
 const S = zeros(steps)
 
 for i=1:steps
-    global DT, GA, GB, PA, PB, S
+    global DT, z2, GA, GB, PA, PB, S
     applygate(z2, GA)
     applygate(z2, GB)
     applygate(z2, GA)
