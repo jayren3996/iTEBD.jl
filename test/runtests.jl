@@ -61,7 +61,7 @@ end
     @test mps.λ[2] ≈ [1/sqrt(2), 1/sqrt(2)] atol=1e-5
 
     # Bench-Mark
-    # Best: 0.650156 seconds (248.39 k allocations: 554.746 MiB, 4.90% gc time)
+    # Best: 0.638020 seconds (228.75 k allocations: 529.783 MiB, 6.13% gc time)
     println("Second-time run:")
     mps = rand_iMPS(2, 3, rdim)
     @time for i=1:1000

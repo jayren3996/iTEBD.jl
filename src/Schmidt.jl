@@ -13,7 +13,6 @@ function schmidt_canonical(
     zerotol::Real=ZEROTOL
 )
     X, Yt = begin
-        trmat_T = transpose(trm(Γ))
         R = steady_mat(Γ, krylov_power=krylov_power)
         L = steady_mat(Γ, krylov_power=krylov_power, dir=:l)
         R_res = cholesky(R)
