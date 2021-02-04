@@ -85,10 +85,28 @@ function rand_iMPS(
     dim::Integer
 )
     Γ = [rand(T, dim, d, dim) for i=1:n]
-    λ = [ones(Float64, dim) for i=1:n]
+    λ = [ones(dim) for i=1:n]
     iMPS(Γ, λ, n)
 end
 rand_iMPS(n, d, dim) = rand_iMPS(Float64, n, d, dim)
+#---------------------------------------------------------------------------------------------------
+function product_iMPS(
+    T::DataType,
+    v::AbstractVector{<:AbstractVector{<:Number}}
+)
+    n = length(v)
+    d = length(v[1])
+    Γ = [zeros(T, 1, d, 1) for i=1:n]
+    λ = [ones(1) for i=1:n]
+    for i=1:n
+        Γ[i][1,:,1] .= v[i]
+    end
+    iMPS(Γ, λ, n)
+end
+function product_iMPS(v::AbstractVector{<:AbstractVector{<:Number}})
+    T = promote_type(eltype.(v)...)
+    product_iMPS(T, v)
+end
 
 #---------------------------------------------------------------------------------------------------
 # MANIPULATION
