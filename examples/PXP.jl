@@ -24,7 +24,7 @@ end
 
 const S = zeros(steps)
 
-for i=1:steps
+for i=1:10
     global DT, z2, GA, GB, PA, PB, S
     applygate!(z2, GA)
     applygate!(z2, GB)

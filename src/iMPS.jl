@@ -169,6 +169,7 @@ function decomposition!(
     bound::Integer=BOUND,
     tol::Real=SVDTOL
 )
+    tensor_lmul!(λ, Γ)
     Γs, λs = tensor_decomp!(Γ, λ, λ, n, renormalize=renormalize, bound=bound, tol=tol)
     iMPS(Γs, λs, n)
 end
