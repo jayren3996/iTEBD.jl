@@ -1,6 +1,6 @@
 using LinearAlgebra
 using iTEBD
-using iTEBD: spin, product_iMPS
+using iTEBD: spin
 
 const BOND = 100
 const DT = 0.1

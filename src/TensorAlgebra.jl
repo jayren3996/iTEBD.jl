@@ -192,7 +192,7 @@ function tensor_applygate!(
 )
     n = length(Γs)
     if n == 1
-        GΓ = tensor_umul(G, Γ[1])
+        GΓ = tensor_umul(G, Γs[1])
         return [GΓ], [λr]
     end
     Γ = tensor_group(Γs)
