@@ -37,7 +37,7 @@ end
     rdim = 50
 
     GA, GB = begin
-        ss = spin("xx",3) + spin("yy",3) + spin("zz",3)
+        ss = spin((1,"xx"), (1,"yy"), (1,"zz"), D=3)
         H = ss + 1/3*ss^2 + 2/3*I(9)
         expH = exp(- dt * H)
         gate(expH, [1,2], bound=rdim), gate(expH, [2,1], bound=rdim)
@@ -75,7 +75,7 @@ end
     rdim = 50
 
     GA, GB, GC = begin
-        ss = spin("xx",3) + spin("yy",3) + spin("zz",3)
+        ss = spin((1,"xx"), (1,"yy"), (1,"zz"), D=3)
         H = ss + 1/3*ss^2 + 2/3*I(9)
         expH = exp(- dt * H)
         gate(expH, [1,2], bound=rdim), gate(expH, [2,3], bound=rdim), gate(expH, [3,1], bound=rdim)

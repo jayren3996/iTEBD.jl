@@ -1,22 +1,17 @@
 using iTEBD
-using LinearAlgebra
-using iTEBD: spinmat
+using iTEBD: spin
 
 # Create random iMPS
-imps = begin
-    dim_num = 50
-    rand_iMPS(2, 3, dim_num)
-end
+BOND = 50
+imps = rand_iMPS(ComplexF64, 2, 3, BOND)
 
 # Create AKLT Hamiltonian and iTEBD engine
-hamiltonian = begin
-    SS = spinmat("xx", 3) + spinmat("yy", 3) + spinmat("zz", 3)
-    SS + 1/3 * SS^2 + 2/3 * I(9)
-end
-
-engine = begin
-    time_step = 0.01
-    itebd(hamiltonian, time_step, mode="i")
+GA, GB = begin
+    dt = 0.01
+    ss = spin((1,"xx"), (1,"yy"), (1,"zz"), D=3)
+    H = ss + 1/3*ss^2
+    expH = exp(- dt * H)
+    gate(expH, [1,2], bound=BOND), gate(expH, [2,1], bound=BOND)
 end
 
 # Exact AKLT ground state
@@ -32,8 +27,9 @@ end
 
 # Setup TEBD
 for i=1:2000
-    global imps, aklt, engine
-    imps = engine(imps)
+    global imps, aklt, GA, GB
+    applygate!(imps, GA)
+    applygate!(imps, GB)
     if mod(i, 100) == 0
         println("Overlap: ", inner_product(aklt, imps))
     end

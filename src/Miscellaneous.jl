@@ -1,38 +1,37 @@
 #-----------------------------------------------------------------------------------------------------
 # Spin Operators
 #-----------------------------------------------------------------------------------------------------
-coefficient(D::Integer) = [sqrt(i*(D-i)) for i = 1:D-1]
-Sp(D::Integer) = sparse(1:D-1, 2:D,coefficient(D), D,D)
-Sm(D::Integer) = Sp(D)'
-Sx(D::Integer) = (sp=Sp(D); (sp+sp')/2)
-iSy(D::Integer) = (sp=Sp(D); (sp-sp')/2)
-Sy(D::Integer) = (sp=Sp(D); 0.5im*(sp'-sp))
-Sz(D::Integer) = (J=(D-1)/2; sparse(1:D,1:D, J:-1:-J))
 # Dictionary
-function spin(
-    s::Char, 
-    D::Integer
-)
-    if s == '+' return Sp(D)
-    elseif s == '-' return Sm(D)
-    elseif s == 'x' return Sx(D)
-    elseif s == 'Y' return iSy(D)
-    elseif s == 'y' return Sy(D)
-    elseif s == 'z' return Sz(D)
-    elseif s == '1' return sparse(I,D,D)
-    end
+function spin_dict(D::Integer)
+    J = (D-1)/2
+    coeff = [sqrt(i*(D-i)) for i = 1:D-1]
+    sp = sparse(1:D-1, 2:D, coeff, D, D)
+    sm = sp'
+    sx = (sp+sm)/2
+    sy = (sp-sm)/2
+    sz = sparse(1:D, 1:D, J:-1:-J)
+    s0 = sparse(1.0I, D, D)
+    Dict([('+', sp), ('-', sm), ('x', sx), ('y', sy), ('z', sz), ('1', s0)])
 end
-#-----------------------------------------------------------------------------------------------------
+# Atomic spin matrix
+function spin_atom(
+    s::String, 
+    dic::Dict
+)
+    n = length(s)
+    ny = sum(si == 'y' for si in s)
+    temp = n == 1 ? dic[s[1]] : kron([dic[si] for si in s]...)
+    P = mod(ny, 2) == 0 ? (-1)^(ny÷2) : (1im)^ny
+    P * temp
+end
 # General spin matrix
 function spin(
-    s::String, 
-    D::Integer
+    tup::Tuple{<:Number, String}...;
+    D::Integer=2
 )
-    if length(s) == 1
-        return spin(s[1],D)
-    end
-    mat = kron([spin(si,D) for si in s]...)
-    Array(mat)
+    dic = spin_dict(D)
+    res = sum(ci * spin_atom(si, dic) for (ci, si) in tup)
+    Array(res)
 end
 
 #---------------------------------------------------------------------------------------------------
