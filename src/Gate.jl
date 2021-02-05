@@ -17,7 +17,7 @@ function gate(
     mat::AbstractMatrix,
     ind::AbstractVector{<:Integer};
     bound::Integer=50,
-    cutoff::Real=1e-7,
+    cutoff::Real=1e-14,
     renormalize::Bool=true
 )
     GATE(

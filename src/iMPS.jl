@@ -195,6 +195,6 @@ function canonical(
     if trim
         Γ_group = block_canonical(Γ_group, trim=true, krylov_power=krylov_power, zerotol=zerotol, sorttol=sorttol)
     end
-    Γ_new, λ = schmidt_canonical(Γ_group, krylov_power=krylov_power, renormalize=renormalize,bound=bound, tol=tol, zerotol=zerotol)
+    Γ_new, λ = schmidt_canonical(Γ_group, krylov_power=krylov_power, renormalize=renormalize, bound=bound, tol=tol, zerotol=zerotol)
     decomposition!(Γ_new, λ, mps.n, renormalize=renormalize, bound=bound, tol=tol)
 end

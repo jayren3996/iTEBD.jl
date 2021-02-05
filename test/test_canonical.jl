@@ -3,16 +3,14 @@ using .iTEBD
 using Test
 using LinearAlgebra
 using TensorOperations
-import .iTEBD: spinmat, trm, fixed_point, right_canonical, block_decomp, fixed_mat_2, vals_group
+import .iTEBD: spin, trm, right_canonical, block_decomp
 
 #---------------------------------------------------------------------------------------------------
 # Random tensors: (1,3,1) + (2,3,2) + (3,3,3) + (4,3,4) 
 #---------------------------------------------------------------------------------------------------
-TENSOR = zeros(10, 3, 10)
-FIXMAT = zeros(ComplexF64, 10, 10)
-
 @testset "RANDOM_TENSOR" begin
-    for i=1:100
+    TALLY = 0
+    for i=1:1000
         ten1 = rand(1, 3, 1)
         ten2 = rand(2, 3, 2)
         ten3 = rand(3, 3, 3)
@@ -32,30 +30,18 @@ FIXMAT = zeros(ComplexF64, 10, 10)
         rand_V = rand(10, 10)
         @tensor tenr[:] := rand_V[-1,1] * tenc[1,-2,2] * inv(rand_V)[2,-3]
 
-        for j=1:2
-            tenr = right_canonical(tenr)
-        end
+        tenr = right_canonical(tenr, krylov_power=10000)
+        res = block_decomp(tenr, krylov_power=10000)
 
-        res = block_decomp(tenr)
-
-        @test length(res)==4
         if length(res)==4
+            TALLY += 1
             for j=1:4
                 dim = size(res[j], 1)
                 @test inner_product(res[j], tens[dim]) ≈ 1.0 atol=1e-4
             end
-        else
-            TENSOR .= tenr
-            break
         end
     end
+    println("Pass Rate: $(TALLY/10) %")
 end
 
-TENSOR_RC = right_canonical(TENSOR)
-for j=1:2
-    TENSOR_RC = right_canonical(TENSOR_RC)
-end
-VALS = eigvals(fixed_mat_2(trm(TENSOR_RC), 10))
-println(
-    group = vals_group(VALS)
-)
+

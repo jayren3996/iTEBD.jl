@@ -90,6 +90,8 @@ function fixed_point_mat(
 )
     α = size(K, 1)
     ρ = rand(ComplexF64, α, α) |> Hermitian |> Array
+    # ρ -= tr(ρ) * I(α)
+    # ρ -= Diagonal(ρ)
     krylov_eigen!(ρ, K, conj(K), krylov_power, dir=dir)
     Hermitian(ρ)
 end
