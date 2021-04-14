@@ -6,7 +6,7 @@
 #---------------------------------------------------------------------------------------------------
 function mat_sqrt(
     mat::Hermitian; 
-    zerotol::Real=ZEROTOL
+    zerotol::Real=1e-20
 )
     vals_all, vecs_all = eigen(mat)
     pos = vals_all .> zerotol
@@ -28,7 +28,7 @@ end
 #---------------------------------------------------------------------------------------------------
 function vals_group(
     vals::Vector;
-    sorttol::Real=SORTTOL
+    sorttol::Real=1e-3
 )
     pos = Vector{Vector{Int64}}(undef, 0)
     temp = zeros(Int64, 0)
@@ -56,8 +56,8 @@ end
 #---------------------------------------------------------------------------------------------------
 function right_canonical(
     Γ::AbstractArray{<:Number, 3};
-    krylov_power::Integer=KRLOV_POWER,
-    zerotol::Real=ZEROTOL
+    krylov_power::Integer=100,
+    zerotol::Real=1e-20
 )
     ρ = steady_mat(Γ, krylov_power=krylov_power)
     L, R = mat_sqrt(ρ, zerotol=zerotol)
@@ -73,8 +73,8 @@ end
 #---------------------------------------------------------------------------------------------------
 function block_decomp(
     Γ::AbstractArray{<:Number, 3};
-    krylov_power::Integer=KRLOV_POWER,
-    sorttol::Real=SORTTOL
+    krylov_power::Integer=100,
+    sorttol::Real=1e-3
 )
     vals, vecs = fixed_point_mat(Γ, krylov_power=krylov_power) |> eigen
     vgroup = vals_group(vals, sorttol=sorttol)
@@ -93,8 +93,8 @@ end
 #---------------------------------------------------------------------------------------------------
 function block_trim(
     Γ::AbstractArray{<:Number, 3};
-    krylov_power::Integer=KRLOV_POWER,
-    sorttol::Real=SORTTOL
+    krylov_power::Integer=100,
+    sorttol::Real=1e-3
 )
     vals, vecs = fixed_point_mat(Γ, krylov_power=krylov_power) |> eigen
     p = begin
@@ -113,9 +113,9 @@ end
 #---------------------------------------------------------------------------------------------------
 function block_canonical(
     Γ::AbstractArray{<:Number, 3};
-    krylov_power::Integer=KRLOV_POWER,
-    sorttol::Real=SORTTOL,
-    zerotol::Real=ZEROTOL,
+    krylov_power::Integer=100,
+    sorttol::Real=1e-3,
+    zerotol::Real=1e-20,
     trim::Bool=false
 )
     Γ_RC = right_canonical(Γ, krylov_power=krylov_power, zerotol=zerotol)
