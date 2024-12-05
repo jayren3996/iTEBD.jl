@@ -2,8 +2,8 @@ module iTEBD
 #---------------------------------------------------------------------------------------------------
 # CONSTANTS
 #---------------------------------------------------------------------------------------------------
-const BOUND = 50
-const SVDTOL = 1e-7
+const MAXDIM = 50
+const SVDTOL = 1e-8
 const SORTTOL = 1e-3
 const ZEROTOL = 1e-20
 const KRLOV_POWER = 100

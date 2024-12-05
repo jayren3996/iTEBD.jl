@@ -1,12 +1,19 @@
 #---------------------------------------------------------------------------------------------------
-# iMPS TYPE
-#
-# Parameters:
-# Γ : Vector of tensors.
-# λ : Vector of Schmidt values.
-# n : Number of tensors in the periodic blocks.
+# iMPS 
 #---------------------------------------------------------------------------------------------------
 export iMPS
+"""
+    iMPS
+
+Infinite MPS. 
+
+Parameters:
+- Γ : Vector of tensors.
+- λ : Vector of Schmidt values.
+- n : Number of tensors in the periodic blocks.
+
+Note that the tensor `Γ` has absorbed the `λ` in, so it's in right canonical form.  
+"""
 struct iMPS{T<:Number}
     Γ::Vector{Array{T, 3}}
     λ::Vector{Vector{Float64}}
@@ -32,9 +39,7 @@ end
 #---------------------------------------------------------------------------------------------------
 # BASIC PROPERTIES
 #---------------------------------------------------------------------------------------------------
-export get_data
 get_data(mps::iMPS) = mps.Γ, mps.λ, mps.n
-#---------------------------------------------------------------------------------------------------
 eltype(::iMPS{T}) where T = T
 #---------------------------------------------------------------------------------------------------
 function getindex(mps::iMPS, i::Integer)
@@ -61,13 +66,9 @@ function mps_promote_type(
     iMPS(Γ_new, λ, n)
 end
 #---------------------------------------------------------------------------------------------------
-export entropy
-function entropy(
-    mps::iMPS,
-    i::Integer
-)
+function ent_S(mps::iMPS, i::Integer)
     j = mod(i-1, mps.n) + 1
-    ρ = mps.λ[j].^2
+    ρ = mps.λ[j] .^ 2
     entanglement_entropy(ρ)
 end
 

@@ -1,48 +1,52 @@
 #---------------------------------------------------------------------------------------------------
 # QUANTUM GATE
 #---------------------------------------------------------------------------------------------------
-struct GATE{T<:Number}
-    mat::Matrix{T}
-    inds::Vector{Int64}
-    bound::Int64
-    cutoff::Float64
-    renormalize::Bool
-end
+"""
+    tensor_applygate!(G, Γs, λl; keywords...)
 
-eltype(::GATE{T}) where T = T
-get_data(g::GATE) = g.mat, g.inds, g.bound, g.cutoff, g.renormalize
-#---------------------------------------------------------------------------------------------------
-export gate
-function gate(
-    mat::AbstractMatrix,
-    ind::AbstractVector{<:Integer};
-    bound::Integer=50,
-    cutoff::Real=1e-14,
-    renormalize::Bool=true
+Apply Gate:
+    |
+    G
+    |              |   |        |
+  --Γ--  ==> --λl--Γ₁--Γ₂-- ⋯ --Γₙ--,
+where:
+    |          |
+  --Γₙ--  =  --Aₙ--λₙ-- 
+
+Return list tensor list [Γ₁,⋯,Γₙ], and values list [λ₁,⋯,λₙ₋₁].
+"""
+function tensor_applygate!(
+    G::AbstractMatrix{<:Number}, Γs::AbstractVector{<:AbstractArray{<:Number, 3}},
+    λl::AbstractVector{<:Number};
+    maxdim=MAXDIM, cutoff=SVDTOL, renormalize=false
 )
-    GATE(
-        Array(mat), 
-        Int64.(ind), 
-        Int64(bound), 
-        Float64(cutoff), 
-        renormalize
-    )
-end
-#---------------------------------------------------------------------------------------------------
-export applygate
-function applygate(mps::iMPS, gate::GATE)
-    mps_type = eltype(mps)
-    gate_type = eltype(gate)
-    ctype = promote_type(mps_type, gate_type)
-    mps_out = if mps_type != ctype
-        mps_promote_type(ctype, mps)
-    else
-        deepcopy(mps)
+    n = length(Γs)
+    if n == 1
+        GΓ = tensor_umul(G, Γs[1])
+        return [GΓ], [λr]
     end
-    applygate!(mps_out, gate)
+    Γ = tensor_group(Γs)
+    tensor_lmul!(λl, Γ)
+    GΓ = tensor_umul(G, Γ)
+    tensor_decomp!(GΓ, λl, n; maxdim, cutoff, renormalize)
 end
 #---------------------------------------------------------------------------------------------------
-function applygate!(mps::iMPS, gate::GATE)
-    mat, inds, bound, tol, renorm = get_data(gate)
-    applygate!(mps, mat, inds, renormalize=renorm, bound=bound, tol=tol)
+export applygate!
+function applygate!(
+    ψ::iMPS, G::AbstractMatrix,
+    i::Integer, j::Integer;
+    maxdim=MAXDIM, cutoff=SVDTOL, renormalize=true
+)
+    inds = if j>i 
+        collect(i:j) 
+    else
+        [i:ψ.n; 1:j]
+    end
+    Γs = ψ.Γ[inds]
+    λl = ψ.λ[mod(i-2,ψ.n)+1]
+    Γs, λs = tensor_applygate!(G, Γs, λl; maxdim, cutoff, renormalize)
+    push!(λs, ψ.λ[j])
+    for i in eachindex(inds) 
+        ψ[inds[i]] = Γs[i], λs[i]
+    end
 end
