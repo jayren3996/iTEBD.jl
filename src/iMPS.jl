@@ -108,9 +108,9 @@ function ent_S(mps::iMPS, i::Integer)
 end
 #---------------------------------------------------------------------------------------------------
 function expect(ψ::iMPS, O::AbstractMatrix, i::Integer, j::Integer)
-    Γ = ψ.Γ[j>i ? (i:j) : [i:ψ.n; 1:j]]
+    Γ = ψ.Γ[j>=i ? (i:j) : [i:ψ.n; 1:j]]
     λl = ψ.λ[mod(i-2,ψ.n)+1]
-    ocontract(Γ, O, λl)
+    ocontract(Γ, O, λl) |> real
 end
 
 
