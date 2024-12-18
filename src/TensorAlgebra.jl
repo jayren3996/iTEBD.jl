@@ -344,7 +344,7 @@ function ocontract(
 )
     Γ = tensor_group(Ts)
     M = otrm(Γ, O, Γ)
-    vl = reshape(λl .^2, :)
+    vl = reshape(Diagonal(λl .^2), :)
     vr = reshape(I(size(Γ, 3)), :)
     dot(vl, M * vr)
 end
