@@ -324,21 +324,31 @@ function otrm(
     end
     M
 end
-
-#---------------------------------------------------------------------------------------------------
-# Multi-Site Operators
 #---------------------------------------------------------------------------------------------------
 """
-    convert_operator(mat, d, n)
+    ocontract(Ts, O, λl)
 
-Convert dⁿ×dⁿ matrix that's compatible to the column-major convention
+Contraction of:
+   ⋅---Ā₁---Ā₂- ⋯ -Āₙ---⋅
+   |   |    |      |    |
+   |   -------------    |
+   λ²  | ...O......|    |
+   |   -------------    |
+   |   |    |      |    |
+   ⋅---A₁---A₂- ⋯ -Aₙ---⋅
 """
-function convert_operator(mat::AbstractMatrix, d::Integer, n::Integer)
-    tensor = reshape(mat, fill(d, 2n)...)
-    perm = [n:-1:1; 2n:-1:n+1]
-    tensor = permutedims(tensor, perm)
-    reshape(tensor, size(mat))
+function ocontract(
+    Ts::AbstractVector{<:AbstractArray{<:Number, 3}},
+    O::AbstractMatrix,
+    λl::AbstractVector
+)
+    Γ = tensor_group(Ts)
+    M = otrm(Γ, O, Γ)
+    vl = reshape(λl .^2, :)
+    vr = reshape(I(size(Γ, 3)), :)
+    dot(vl, M * vr)
 end
+
 #---------------------------------------------------------------------------------------------------
 # Normalization
 #---------------------------------------------------------------------------------------------------

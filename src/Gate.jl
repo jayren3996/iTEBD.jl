@@ -21,10 +21,7 @@ function tensor_applygate!(
     maxdim=MAXDIM, cutoff=SVDTOL, renormalize=false
 )
     n = length(Γs)
-    if n == 1
-        GΓ = tensor_umul(G, Γs[1])
-        return [GΓ], [λr]
-    end
+    isone(n) && return ([GΓ], [])
     Γ = tensor_group(Γs)
     tensor_lmul!(λl, Γ)
     GΓ = tensor_umul(G, Γ)
@@ -37,11 +34,7 @@ function applygate!(
     i::Integer, j::Integer;
     maxdim=MAXDIM, cutoff=SVDTOL, renormalize=true
 )
-    inds = if j>i 
-        collect(i:j) 
-    else
-        [i:ψ.n; 1:j]
-    end
+    inds = j>i ? collect(i:j) : [i:ψ.n; 1:j]
     Γs = ψ.Γ[inds]
     λl = ψ.λ[mod(i-2,ψ.n)+1]
     Γs, λs = tensor_applygate!(G, Γs, λl; maxdim, cutoff, renormalize)
@@ -49,4 +42,19 @@ function applygate!(
     for i in eachindex(inds) 
         ψ[inds[i]] = Γs[i], λs[i]
     end
+end
+
+#---------------------------------------------------------------------------------------------------
+# Multi-Site Operators
+#---------------------------------------------------------------------------------------------------
+"""
+    convert_operator(mat, d, n)
+
+Convert dⁿ×dⁿ matrix that's compatible to the column-major convention.
+"""
+function convert_operator(mat::AbstractMatrix, d::Integer, n::Integer)
+    tensor = reshape(mat, fill(d, 2n)...)
+    perm = [n:-1:1; 2n:-1:n+1]
+    tensor = permutedims(tensor, perm)
+    reshape(tensor, size(mat))
 end
