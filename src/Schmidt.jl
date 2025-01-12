@@ -10,14 +10,11 @@ Schmidt Canonical Form
 """
 function schmidt_canonical(
     Γ::AbstractArray{<:Number,3};
-    krylov_power::Integer=KRLOV_POWER,
-    maxdim=MAXDIM,
-    cutoff=SVDTOL,
-    renormalize=false
+    maxdim=MAXDIM, cutoff=SVDTOL, renormalize=false
 )
     X, Yt = begin
-        R = steady_mat(Γ, krylov_power=krylov_power)
-        L = steady_mat(Γ, krylov_power=krylov_power, dir=:l)
+        R = steady_mat(Γ; dir=:r)
+        L = steady_mat(Γ; dir=:l)
         R_res = cholesky(R)
         L_res = cholesky(L)
         R_res.L, L_res.U
@@ -32,39 +29,27 @@ end
 # Multiple tensors
 function schmidt_canonical(
     Γs::AbstractVector{<:AbstractArray{<:Number, 3}};
-    krylov_power::Integer=KRLOV_POWER,
-    renormalize::Bool=false,
-    bound::Integer=BOUND,
-    tol::Real=SVDTOL,
-    zerotol::Real=ZEROTOL
+    maxdim=MAXDIM, cutoff=SVDTOL, renormalize=false
 )
     n = length(Γs)
     Γ_grouped = tensor_group(Γs)
 
-    A, λ = schmidt_canonical(
-        Γ_grouped, 
-        krylov_power=krylov_power, 
-        renormalize=renormalize,
-        bound=bound,
-        tol=tol,
-        zerotol=zerotol
-    )
+    A, λ = schmidt_canonical(Γ_grouped; maxdim, cutoff, renormalize)
     tensor_lmul!(λ, A)
-    tensor_decomp!(A, λ, λ, n; maxdim, cutoff, renormalize)
+    Γs, λs = tensor_decomp!(A, λ, n; maxdim, cutoff, renormalize)
+    Γs, push!(λs, λ)
 end
 #---------------------------------------------------------------------------------------------------
 export canonical_trim
 function canonical_trim(
     Ts::AbstractVector{<:AbstractArray{<:Number, 3}};
-    renormalize=true,
-    bound::Integer=BOUND,
-    tol::Real=SVDTOL
+    maxdim=MAXDIM, cutoff=SVDTOL, renormalize=true,  
 )
     n = length(Ts)
     T = tensor_group(Ts)
     T_RC = right_canonical(T)
     T_BRC = block_trim(T_RC)
-    A, λ = schmidt_canonical(T_BRC, renormalize=renormalize)
+    A, λ = schmidt_canonical(T_BRC; renormalize)
     tensor_lmul!(λ, A)
-    tensor_decomp!(A, λ, λ, n; maxdim, cutoff, renormalize)
+    tensor_decomp!(A, λ, n; maxdim, cutoff, renormalize)
 end

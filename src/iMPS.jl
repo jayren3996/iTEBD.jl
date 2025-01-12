@@ -35,6 +35,7 @@ function iMPS(Γs::AbstractVector{<:AbstractArray{<:Number, 3}})
     T = promote_type(type_list...)
     iMPS(T, Γs)
 end
+
 #---------------------------------------------------------------------------------------------------
 # INITIATE MPS
 #---------------------------------------------------------------------------------------------------
@@ -69,6 +70,11 @@ end
 function product_iMPS(v::AbstractVector{<:AbstractVector{<:Number}})
     T = promote_type(eltype.(v)...)
     product_iMPS(T, v)
+end
+#---------------------------------------------------------------------------------------------------
+function canonical!(ψ::iMPS; maxdim=MAXDIM, cutoff=SVDTOL, renormalize=true)
+    ψ.Γ[:], ψ.λ[:] = schmidt_canonical(ψ.Γ; maxdim, cutoff, renormalize)
+    ψ
 end
 
 #---------------------------------------------------------------------------------------------------

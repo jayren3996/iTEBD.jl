@@ -10,10 +10,7 @@ const KRLOV_POWER = 100
 #---------------------------------------------------------------------------------------------------
 # INCLUDE
 #---------------------------------------------------------------------------------------------------
-using LinearAlgebra
-using SparseArrays
-using TensorOperations
-using KrylovKit
+using LinearAlgebra, SparseArrays, TensorOperations, KrylovKit
 import Base: eltype, getindex, setindex!
 import LinearAlgebra: conj
 
