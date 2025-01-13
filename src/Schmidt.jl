@@ -26,7 +26,7 @@ function schmidt_canonical(
     X = vr * Diagonal(sqrt.(er)) * vr' 
     Yt = vl * Diagonal(sqrt.(el)) * vl'
     X_inv = vr * Diagonal(er .^ (-0.5)) * vr' 
-    Yt_inv = vr * Diagonal(el .^ (-0.5)) * vr' 
+    Yt_inv = vl * Diagonal(el .^ (-0.5)) * vl' 
 
     U, S, V = svd_trim(Yt * X; maxdim, cutoff, renormalize)
     R_mat = Yt_inv * U * Diagonal(S)
