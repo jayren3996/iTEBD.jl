@@ -47,8 +47,7 @@ function krylov_eigen(
         reshape(ρ0, n^2)
     end
 
-    eigsolve(f, v0, 1, :LM; ishermitian=false)
-    vals, vecs = eigsolve(f, n^2, 1, :LM, T; ishermitian=false)
+    vals, vecs = eigsolve(f, v0, 1, :LM; ishermitian=false)
     if real(tr(vecs[1])) < 0
         vals[1], -reshape(vecs[1], n,n)
     else
