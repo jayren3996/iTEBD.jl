@@ -16,12 +16,12 @@ function schmidt_canonical(
     R = steady_mat(Γ; dir=:r)
     er, vr = eigen(R)
     n = findfirst(x -> x>zerotol, er)
-    er, vr = vr[:,n:end], er[n:end]
+    er, vr = er[n:end], vr[:,n:end]
 
     L = steady_mat(Γ; dir=:l)
     el, vl = eigen(L)
     n = findfirst(x -> x>zerotol, el)
-    el, vl = vl[:,n:end], el[n:end]
+    el, vl = el[n:end], vl[:,n:end]
 
     X = vr * Diagonal(sqrt.(er)) * vr' 
     Yt = vl * Diagonal(sqrt.(el)) * vl'
