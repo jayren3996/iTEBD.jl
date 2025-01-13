@@ -17,10 +17,10 @@ function schmidt_canonical(
     L = steady_mat(Γ; dir=:l)
     er, vr = eigen(R)
     el, vl = eigen(L)
-    n = findlast(x -> x>zerotol, er)
-    @assert findlast(x -> x>zerotol, el) == n "zeros of left & right eigenvalues are different."
-    vr, vl = vr[:,1:n], vl[:,1:n]
-    er, el = er[1:n], el[1:n]
+    n = findfirst(x -> x>zerotol, er)
+    @assert findfirst(x -> x>zerotol, el) == n "zeros of left & right eigenvalues are different."
+    vr, vl = vr[:,n:end], vl[:,n:end]
+    er, el = er[n:end], el[n:end]
     X = vr * Diagonal(sqrt.(er)) * vr' 
     Yt = vl * Diagonal(sqrt.(el)) * vl'
     X_inv = vr * Diagonal(er .^ (-0.5)) * vr' 
