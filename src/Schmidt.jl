@@ -10,18 +10,25 @@ Schmidt Canonical Form
 """
 function schmidt_canonical(
     Γ::AbstractArray{<:Number,3};
-    maxdim=MAXDIM, cutoff=SVDTOL, renormalize=false
+    maxdim=MAXDIM, cutoff=SVDTOL, renormalize=false,
+    zerotol=ZEROTOL
 )
-    X, Yt = begin
-        R = steady_mat(Γ; dir=:r)
-        L = steady_mat(Γ; dir=:l)
-        R_res = cholesky(R)
-        L_res = cholesky(L)
-        R_res.L, L_res.U
-    end
+    R = steady_mat(Γ; dir=:r)
+    L = steady_mat(Γ; dir=:l)
+    er, vr = eigen(R)
+    el, vl = eigen(L)
+    n = findlast(x -> x>zerotol, er)
+    @assert findlast(x -> x>zerotol, el) == n "zeros of left & right eigenvalues are different."
+    vr, vl = vr[:,1:n], vl[:,1:n]
+    er, el = er[1:n], rl[1:n]
+    X = vr * Diagonal(sqrt.(er)) * vr' 
+    Yt = vl * Diagonal(sqrt.(el)) * vl'
+    X_inv = vr * Diagonal(er .^ (-0.5)) * vr' 
+    Yt_inv = vr * Diagonal(el .^ (-0.5)) * vr' 
+
     U, S, V = svd_trim(Yt * X; maxdim, cutoff, renormalize)
-    R_mat = inv(Yt) * U * Diagonal(S)
-    L_mat = V * inv(X)
+    R_mat = Yt_inv * U * Diagonal(S)
+    L_mat = V * X_inv
     Γ_new = canonical_gauging(Γ, R_mat, L_mat)
     Γ_new, S
 end

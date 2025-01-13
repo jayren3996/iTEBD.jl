@@ -356,3 +356,4 @@ function tensor_renormalize!(Γ::Array{<:Number, 3})
     Γ_norm = sqrt(inner_product(Γ))
     Γ ./= Γ_norm
 end
+
