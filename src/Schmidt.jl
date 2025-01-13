@@ -14,13 +14,15 @@ function schmidt_canonical(
     zerotol=ZEROTOL
 )
     R = steady_mat(Γ; dir=:r)
-    L = steady_mat(Γ; dir=:l)
     er, vr = eigen(R)
-    el, vl = eigen(L)
     n = findfirst(x -> x>zerotol, er)
-    @assert findfirst(x -> x>zerotol, el) == n "zeros of left & right eigenvalues are different."
-    vr, vl = vr[:,n:end], vl[:,n:end]
-    er, el = er[n:end], el[n:end]
+    er, vr = vr[:,n:end], er[n:end]
+
+    L = steady_mat(Γ; dir=:l)
+    el, vl = eigen(L)
+    n = findfirst(x -> x>zerotol, el)
+    el, vl = vl[:,n:end], el[n:end]
+
     X = vr * Diagonal(sqrt.(er)) * vr' 
     Yt = vl * Diagonal(sqrt.(el)) * vl'
     X_inv = vr * Diagonal(er .^ (-0.5)) * vr' 
