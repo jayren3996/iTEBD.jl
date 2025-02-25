@@ -93,10 +93,9 @@ end
 #---------------------------------------------------------------------------------------------------
 function block_trim(
     Γ::AbstractArray{<:Number, 3};
-    krylov_power::Integer=100,
     sorttol::Real=1e-3
 )
-    vals, vecs = fixed_point_mat(Γ, krylov_power=krylov_power) |> eigen
+    vals, vecs = fixed_point_mat(Γ) |> eigen
     p = begin
         vgroup = vals_group(vals, sorttol=sorttol)
         i = length.(vgroup) |> argmin
@@ -113,16 +112,15 @@ end
 #---------------------------------------------------------------------------------------------------
 function block_canonical(
     Γ::AbstractArray{<:Number, 3};
-    krylov_power::Integer=100,
     sorttol::Real=1e-3,
     zerotol::Real=1e-20,
     trim::Bool=false
 )
-    Γ_RC = right_canonical(Γ, krylov_power=krylov_power, zerotol=zerotol)
+    Γ_RC = right_canonical(Γ, zerotol=zerotol)
     res = if trim
-        block_trim(Γ_RC, krylov_power=krylov_power, sorttol=sorttol)
+        block_trim(Γ_RC, sorttol=sorttol)
     else
-        block_decomp(Γ_RC, krylov_power=krylov_power, sorttol=sorttol)
+        block_decomp(Γ_RC, sorttol=sorttol)
     end
     res
 end

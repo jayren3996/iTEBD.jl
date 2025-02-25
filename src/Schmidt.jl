@@ -5,7 +5,7 @@
 schmidt_canonical(Γ; kerwords)
 
 Schmidt Canonical Form
-1. Given a right canonical form, return a Schmidt canonical form.
+1. Return a Schmidt canonical form.
 2. This algorithm assume there is no degeneracy.
 """
 function schmidt_canonical(
@@ -13,11 +13,13 @@ function schmidt_canonical(
     maxdim=MAXDIM, cutoff=SVDTOL, renormalize=false,
     zerotol=ZEROTOL
 )
+    # Right eigenvector
     R = steady_mat(Γ; dir=:r)
     er, vr = eigen(R)
     n = findfirst(x -> x>zerotol, er)
     er, vr = er[n:end], vr[:,n:end]
 
+    # Left eigenvector
     L = steady_mat(Γ; dir=:l)
     el, vl = eigen(L)
     n = findfirst(x -> x>zerotol, el)
