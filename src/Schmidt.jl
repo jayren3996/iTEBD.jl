@@ -9,10 +9,11 @@ Schmidt Canonical Form
 2. This algorithm assume there is no degeneracy.
 """
 function schmidt_canonical(
-    Γ::AbstractArray{<:Number,3};
-    maxdim=MAXDIM, cutoff=SVDTOL, renormalize=false,
+    Γ::AbstractArray{<:Number,3}, S::AbstractVector;
+    maxdim=MAXDIM, cutoff=SVDTOL, renormalize=true,
     zerotol=ZEROTOL
 )
+    
     # Right eigenvector
     R = steady_mat(Γ; dir=:r)
     er, vr = eigen(R)
@@ -20,7 +21,11 @@ function schmidt_canonical(
     er, vr = er[n:end], vr[:,n:end]
 
     # Left eigenvector
-    L = steady_mat(Γ; dir=:l)
+    Γc = deepcopy(Γ)
+    iTEBD.tensor_rmul!(Γc, 1 ./ S)
+    Γl = deepcopy(Γc)
+    iTEBD.tensor_lmul!(S, Γl)
+    L = steady_mat(Γl; dir=:l)
     el, vl = eigen(L)
     n = findfirst(x -> x>zerotol, el)
     el, vl = el[n:end], vl[:,n:end]
@@ -30,27 +35,29 @@ function schmidt_canonical(
     X_inv = vr * Diagonal(er .^ (-0.5)) * vr' 
     Yt_inv = vl * Diagonal(el .^ (-0.5)) * vl' 
 
-    U, S, V = svd_trim(Yt * X; maxdim, cutoff, renormalize)
-    R_mat = Yt_inv * U * Diagonal(S)
+    U, S, V = svd_trim(Yt * Diagonal(S) * X; maxdim, cutoff, renormalize)
+    R_mat = Yt_inv * U
     L_mat = V * X_inv
-    Γ_new = canonical_gauging(Γ, R_mat, L_mat)
+    Γ_new = canonical_gauging(Γc, R_mat, L_mat)
+    tensor_rmul!(Γ_new, S)
     Γ_new, S
 end
 #---------------------------------------------------------------------------------------------------
 # Multiple tensors
 function schmidt_canonical(
-    Γs::AbstractVector{<:AbstractArray{<:Number, 3}};
+    Γs::AbstractVector{<:AbstractArray{<:Number, 3}}, S::AbstractVector;
     maxdim=MAXDIM, cutoff=SVDTOL, renormalize=false
 )
     n = length(Γs)
     Γ_grouped = tensor_group(Γs)
 
-    A, λ = schmidt_canonical(Γ_grouped; maxdim, cutoff, renormalize)
+    A, λ = schmidt_canonical(Γ_grouped, S; maxdim, cutoff, renormalize)
     tensor_lmul!(λ, A)
     Γs, λs = tensor_decomp!(A, λ, n; maxdim, cutoff, renormalize)
     Γs, push!(λs, λ)
 end
 #---------------------------------------------------------------------------------------------------
+#=
 export canonical_trim
 function canonical_trim(
     Ts::AbstractVector{<:AbstractArray{<:Number, 3}};
@@ -64,3 +71,4 @@ function canonical_trim(
     tensor_lmul!(λ, A)
     tensor_decomp!(A, λ, n; maxdim, cutoff, renormalize)
 end
+=#

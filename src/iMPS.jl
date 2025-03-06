@@ -73,7 +73,7 @@ function product_iMPS(v::AbstractVector{<:AbstractVector{<:Number}})
 end
 #---------------------------------------------------------------------------------------------------
 function canonical!(ψ::iMPS; maxdim=MAXDIM, cutoff=SVDTOL, renormalize=true)
-    ψ.Γ[:], ψ.λ[:] = schmidt_canonical(ψ.Γ; maxdim, cutoff, renormalize)
+    ψ.Γ[:], ψ.λ[:] = schmidt_canonical(ψ.Γ, ψ.λ[end]; maxdim, cutoff, renormalize)
     ψ
 end
 

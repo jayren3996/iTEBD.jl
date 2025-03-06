@@ -59,7 +59,7 @@ function right_canonical(
     krylov_power::Integer=100,
     zerotol::Real=1e-20
 )
-    ρ = steady_mat(Γ, krylov_power=krylov_power)
+    ρ = steady_mat(Γ)
     L, R = mat_sqrt(ρ, zerotol=zerotol)
     canonical_gauging(Γ, L, R)
 end
@@ -73,10 +73,9 @@ end
 #---------------------------------------------------------------------------------------------------
 function block_decomp(
     Γ::AbstractArray{<:Number, 3};
-    krylov_power::Integer=100,
     sorttol::Real=1e-3
 )
-    vals, vecs = fixed_point_mat(Γ, krylov_power=krylov_power) |> eigen
+    vals, vecs = fixed_point_mat(Γ) |> eigen
     vgroup = vals_group(vals, sorttol=sorttol)
     res = begin
         num = length(vgroup)
