@@ -32,6 +32,18 @@ function kraus(
     out
 end
 #---------------------------------------------------------------------------------------------------
+function kraus_mat(KL::AbstractArray{<:Number, 3}, KU::AbstractArray{<:Number, 3}; dir::Symbol=:r)
+    if dir == :r
+        @tensor out[:] := KL[-1, 1, -3] * KU[-2, 1, -4]
+    elseif dir == :l
+        @tensor out[:] := KU[-3, 1, -1] * KL[-4, 1, -2]
+    else
+        error("Illegal direction: $dir.")
+    end
+    a, b, c, d = size(out)
+    reshape(out, (a*b, c*d))
+end
+#---------------------------------------------------------------------------------------------------
 function krylov_eigen(
     KL::AbstractArray{<:Number, 3}, KU::AbstractArray{<:Number, 3}, 
     ρ0::Union{AbstractMatrix, Nothing}=nothing;
@@ -57,8 +69,15 @@ end
 #---------------------------------------------------------------------------------------------------
 # steady state from identity mat
 function steady_mat(K::AbstractArray{<:Number, 3}; dir::Symbol=:r)
-    _, vec = krylov_eigen(K, conj(K); dir)
-    vec |> Hermitian
+    a, b, _ = size(K)
+    vec = if b > a 
+        m = kraus_mat(K, conj(K); dir) 
+        _, vecs = eigsolve(m, reshape(diagm(ones(eltype(K), a)), a^2), 1)
+        real(tr(vecs[1])) < 0 ? -reshape(vecs[1], n,n) : reshape(vecs[1], n,n)
+    else
+        krylov_eigen(K, conj(K); dir)[2]
+    end
+    return Hermitian(vec)
 end
 #---------------------------------------------------------------------------------------------------
 # Random fixed-point matrix.
