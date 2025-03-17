@@ -73,7 +73,8 @@ function steady_mat(K::AbstractArray{<:Number, 3}; dir::Symbol=:r)
     vec = if b > a 
         m = kraus_mat(K, conj(K); dir) 
         _, vecs = eigsolve(m, reshape(diagm(ones(eltype(K), a)), a^2), 1)
-        real(tr(vecs[1])) < 0 ? -reshape(vecs[1], n,n) : reshape(vecs[1], n,n)
+        v = reshape(vecs[1], a, a)
+        real(tr(v)) < 0 ? -v : v
     else
         krylov_eigen(K, conj(K); dir)[2]
     end
