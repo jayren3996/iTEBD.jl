@@ -70,10 +70,10 @@ end
 # steady state from identity mat
 function steady_mat(K::AbstractArray{<:Number, 3}; dir::Symbol=:r)
     a, b, _ = size(K)
-    vec = if b > a 
+    vec = if b > a || a <= 8
         m = kraus_mat(K, conj(K); dir) 
-        _, vecs = eigsolve(m, reshape(diagm(ones(eltype(K), a)), a^2), 1)
-        v = reshape(vecs[1], a, a)
+        _, vecs = eigen(m)
+        v = reshape(vecs[:,end], a, a)
         real(tr(v)) < 0 ? -v : v
     else
         krylov_eigen(K, conj(K); dir)[2]
