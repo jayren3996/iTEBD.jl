@@ -34,6 +34,10 @@ function applygate!(
     i::Integer, j::Integer;
     maxdim=MAXDIM, cutoff=SVDTOL, renormalize=true
 )
+    if isequal(i, j)
+        ψ.Γ[i] = tensor_umul(G, ψ.Γ[i])
+        return ψ
+    end
     inds = j>i ? collect(i:j) : [i:ψ.n; 1:j]
     Γs = ψ.Γ[inds]
     λl = ψ.λ[mod(i-2,ψ.n)+1]
@@ -42,6 +46,7 @@ function applygate!(
     for i in eachindex(inds) 
         ψ[inds[i]] = Γs[i], λs[i]
     end
+    return ψ
 end
 
 #---------------------------------------------------------------------------------------------------

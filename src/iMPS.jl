@@ -30,10 +30,12 @@ function iMPS(
     iMPS(Γ, λ, n)
 end
 #---------------------------------------------------------------------------------------------------
-function iMPS(Γs::AbstractVector{<:AbstractArray{<:Number, 3}})
+function iMPS(Γs::AbstractVector{<:AbstractArray{<:Number, 3}}; renormalize::Bool=true)
     type_list = eltype.(Γs)
     T = promote_type(type_list...)
-    iMPS(T, Γs)
+    ψ = iMPS(T, Γs)
+    renormalize && canonical!(ψ)
+    ψ
 end
 
 #---------------------------------------------------------------------------------------------------
