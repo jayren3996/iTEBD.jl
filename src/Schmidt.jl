@@ -13,7 +13,6 @@ function schmidt_canonical(
     maxdim=MAXDIM, cutoff=SVDTOL, renormalize=true,
     zerotol=ZEROTOL
 )
-    
     # Right eigenvector
     R = steady_mat(Γ; dir=:r)
     er, vr = eigen(R)

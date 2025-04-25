@@ -23,21 +23,12 @@ function inner_product(T)
     val, vec = eigsolve(trmat)
     abs(val[1])
 end
-
+#---------------------------------------------------------------------------------------------------
 function inner_product(T1, T2)
     trmat = gtrm(T1, T2)
     val, vec = eigsolve(trmat)
     abs(val[1])
 end
 
-#---------------------------------------------------------------------------------------------------
-# Symmetry representation
-#---------------------------------------------------------------------------------------------------
-function symrep(T, U; tr::Bool=false)
-    tT = tr ? conj.(T) : T
-    M = otrm(T, U, tT)
-    de, dv = dominent_eigen(M)
-    χ = round(Int, sqrt(length(dv)))
-    reshape(dv, χ, χ)
-end
+
 

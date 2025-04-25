@@ -217,8 +217,8 @@ General transfer matrix:
   1 ---B--- 3
 """
 function gtrm(T1::AbstractArray{<:Number, 3}, T2::AbstractArray{<:Number, 3})
-    i1, j1, k1 = size(T2)
-    i2, j2, k2 = size(T1)
+    i1, _, k1 = size(T2)
+    i2, _, k2 = size(T1)
     T1c = conj(T1)
     ctype = promote_type(eltype(T1c), eltype(T2))
     transfer_mat = Array{ctype, 4}(undef, i1, i2, k1, k2)

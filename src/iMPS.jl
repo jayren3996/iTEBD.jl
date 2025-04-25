@@ -22,20 +22,18 @@ end
 #---------------------------------------------------------------------------------------------------
 function iMPS(
     T::DataType,
-    Γs::AbstractVector{<:AbstractArray{<:Number, 3}}
+    Γs::AbstractVector{<:AbstractArray{<:Number, 3}};
+    renormalize::Bool=true
 )
     n = length(Γs)
     Γ = Array{T}.(Γs)
     λ = [ones(Float64, size(Γi, 3)) for Γi in Γs]
-    iMPS(Γ, λ, n)
+    ψ = iMPS(Γ, λ, n)
+    return renormalize ? canonical!(ψ) : ψ
 end
 #---------------------------------------------------------------------------------------------------
-function iMPS(Γs::AbstractVector{<:AbstractArray{<:Number, 3}}; renormalize::Bool=true)
-    type_list = eltype.(Γs)
-    T = promote_type(type_list...)
-    ψ = iMPS(T, Γs)
-    renormalize && canonical!(ψ)
-    ψ
+function iMPS(Γs; renormalize::Bool=true)
+    return iMPS(ComplexF64, Γs; renormalize)
 end
 
 #---------------------------------------------------------------------------------------------------
@@ -77,28 +75,19 @@ end
 export canonical!
 function canonical!(ψ::iMPS; maxdim=MAXDIM, cutoff=SVDTOL, renormalize=true)
     ψ.Γ[:], ψ.λ[:] = schmidt_canonical(ψ.Γ, ψ.λ[end]; maxdim, cutoff, renormalize)
-    ψ
+    return ψ
 end
 
 #---------------------------------------------------------------------------------------------------
 # BASIC PROPERTIES
 #---------------------------------------------------------------------------------------------------
-get_data(mps::iMPS) = mps.Γ, mps.λ, mps.n
 eltype(::iMPS{T}) where T = T
 #---------------------------------------------------------------------------------------------------
 function getindex(mps::iMPS, i::Integer)
     i = mod(i-1, mps.n) + 1
-    mps.Γ[i], mps.λ[i]
-end
-#---------------------------------------------------------------------------------------------------
-function setindex!(
-    mps::iMPS, 
-    v::Tuple{<:AbstractArray{<:Number, 3}, <:AbstractVector{<:Real}},
-    i::Integer
-)
-    i = mod(i-1, mps.n) + 1
-    mps.Γ[i] = v[1]
-    mps.λ[i] = v[2]
+    Γ, λ = copy(mps.Γ[i]), mps.λ[i]
+    tensor_rmul!(Γ, 1 ./ λ)
+    Γ, λ
 end
 #---------------------------------------------------------------------------------------------------
 function mps_promote_type(

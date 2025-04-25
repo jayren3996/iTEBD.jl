@@ -19,8 +19,7 @@ function ocontract(
     λl::AbstractVector
 )
     Γ = tensor_group(Ts)
-    M = otrm(Γ, O, Γ)
-    vl = reshape(Diagonal(λl .^2), :)
-    vr = reshape(I(size(Γ, 3)), :)
-    dot(vl, M * vr)
+    tensor_lmul!(λl, Γ)
+    Γ2 = tensor_umul(O, Γ)
+    dot(Γ, Γ2)
 end

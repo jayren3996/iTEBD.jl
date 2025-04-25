@@ -32,6 +32,9 @@ function kraus(
     out
 end
 #---------------------------------------------------------------------------------------------------
+"""
+Matrix representation of Kraus operator
+"""
 function kraus_mat(KL::AbstractArray{<:Number, 3}, KU::AbstractArray{<:Number, 3}; dir::Symbol=:r)
     if dir == :r
         @tensor out[:] := KL[-1, 1, -3] * KU[-2, 1, -4]
@@ -67,7 +70,9 @@ function krylov_eigen(
     end
 end
 #---------------------------------------------------------------------------------------------------
-# steady state from identity mat
+"""
+Steady state from identity mat
+"""
 function steady_mat(K::AbstractArray{<:Number, 3}; dir::Symbol=:r)
     a, b, _ = size(K)
     vec = if b > a || a <= 8

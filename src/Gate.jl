@@ -32,7 +32,9 @@ export applygate!
 function applygate!(
     ψ::iMPS, G::AbstractMatrix,
     i::Integer, j::Integer;
-    maxdim=MAXDIM, cutoff=SVDTOL, renormalize=true
+    maxdim::Integer=MAXDIM, 
+    cutoff::Real=SVDTOL, 
+    renormalize::Bool=true
 )
     if isequal(i, j)
         ψ.Γ[i] = tensor_umul(G, ψ.Γ[i])
