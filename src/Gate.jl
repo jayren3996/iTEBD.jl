@@ -46,7 +46,8 @@ function applygate!(
     Γs, λs = tensor_applygate!(G, Γs, λl; maxdim, cutoff, renormalize)
     push!(λs, ψ.λ[j])
     for i in eachindex(inds) 
-        ψ[inds[i]] = Γs[i], λs[i]
+        ψ.Γ[inds[i]] = Γs[i]
+        ψ.λ[inds[i]] = λs[i]
     end
     return ψ
 end
