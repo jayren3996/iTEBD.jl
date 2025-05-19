@@ -113,7 +113,16 @@ function svd_trim(
     cutoff::Real=SVDTOL,
     renormalize::Bool=false
 )
-    res = svd(mat)
+    res = try
+        svd(mat)  # Standard, faster path
+    catch e
+        if e isa LAPACKException
+            # Use a robust fallback algorithm
+            svd(mat; alg=LinearAlgebra.DivideAndConquer())
+        else
+            rethrow(e)  # rethrow if it’s an unexpected error
+        end
+    end
     vals = res.S
     (maxdim > length(vals)) && (maxdim = length(vals))
     len::Int64 = 1
