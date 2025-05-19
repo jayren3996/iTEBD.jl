@@ -117,8 +117,9 @@ function svd_trim(
         svd(mat)  # Standard, faster path
     catch e
         if e isa LAPACKException
-            # Use a robust fallback algorithm
-            svd(mat; alg=LinearAlgebra.DivideAndConquer())
+            ϵ = SVDTOL  # small positive number
+            mat_regularized = mat + ϵ * I(size(mat,1))
+            svd(mat_regularized; alg=LinearAlgebra.DivideAndConquer())
         else
             rethrow(e)  # rethrow if it’s an unexpected error
         end
