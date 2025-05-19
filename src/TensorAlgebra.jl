@@ -118,8 +118,13 @@ function svd_trim(
     catch e
         if e isa LAPACKException
             ϵ = SVDTOL  # small positive number
-            mat_regularized = mat + ϵ * I(size(mat,1))
-            svd(mat_regularized; alg=LinearAlgebra.DivideAndConquer())
+
+            for i in 1:min(size(mat)...)
+                # this actually altered mat, but only marginally. 
+                # So I didn't rename the function to svd_trim!
+                mat[i,i] += ϵ
+            end
+            svd(mat; alg=LinearAlgebra.DivideAndConquer())
         else
             rethrow(e)  # rethrow if it’s an unexpected error
         end
