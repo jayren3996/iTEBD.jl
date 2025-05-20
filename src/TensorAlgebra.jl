@@ -83,7 +83,8 @@ Contraction:
 """
 function tensor_group(Γs::AbstractVector{<:AbstractArray{<:Number, 3}})
     tensor = Γs[1]
-    n = length(Γs)
+    n = length(Γs) 
+    isone(n) && return copy(tensor)
     for i in 2:n
         χ = size(Γs[i], 1) 
         tensor = reshape(tensor, :, χ) * reshape(Γs[i], χ, :)
