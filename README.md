@@ -29,7 +29,6 @@ The most commonly used entry points are:
 - `inner_product(ψ1, ψ2)`: overlap per unit cell.
 - `energy_density(ψ, h)`: unit-cell averaged expectation value of a local operator.
 - `scarfinder_step!` and `scarfinder!`: hybrid scar-search routines.
-- `floquet_scarfinder_step!` and `floquet_scarfinder!`: Floquet scar-search routines.
 
 ## Quick Start
 
@@ -98,35 +97,6 @@ println("entanglement   = ", iTEBD.ent_S(psi, psi.n))
 `scarfinder!` infers the operator range from the local Hilbert-space dimension
 of `ψ`, so the same interface works for 2-site, 3-site, and longer local operators
 as long as they are passed as dense matrices compatible with `applygate!`.
-
-### Example: Floquet ScarFinder
-
-For periodically driven systems, use `floquet_scarfinder!` with either a single
-one-period gate or a sequence of substep gates:
-
-```julia
-using iTEBD, LinearAlgebra
-
-P = [0 0; 0 1]
-X = [0 1; 1 0]
-PXP = kron(P, X, P)
-
-U1 = exp(-1im * 0.04 * PXP)
-U2 = exp(-1im * 0.02 * PXP)
-
-psi = product_iMPS(ComplexF64, [[0, 1], [1, 0], [0, 1], [1, 0]])
-
-floquet_scarfinder!(psi, [U1, U2], 2, 50;
-    spans=3,
-    ncycle=1,
-    maxdim=32,
-    refine=true,
-    refine_step=100,
-)
-```
-
-This applies one Floquet period, truncates back to bond dimension `2`, and then
-searches for a low-entanglement Floquet state by repeating the procedure.
 
 ## Example Notebooks
 
