@@ -1,7 +1,9 @@
 #---------------------------------------------------------------------------------------------------
 # ScarFinder
 #---------------------------------------------------------------------------------------------------
-export operator_span, energy_density, energy_span, scarfinder_step!, scarfinder!
+export operator_span, energy_density, energy_span
+export scarfinder_step!, scarfinder!
+export floquet_scarfinder_step!, floquet_scarfinder!
 
 """
     operator_span(ψ, O)
@@ -44,6 +46,32 @@ function _truncate_unitcell!(ψ::iMPS, χ::Integer; cutoff::Real=SVDTOL)
     ψ.λ .= λs
     canonical!(ψ; maxdim=χ, cutoff, renormalize=true)
     return ψ
+end
+
+function _apply_sequence!(
+    ψ::iMPS,
+    gates::AbstractVector{<:AbstractMatrix};
+    spans::AbstractVector{<:Integer},
+    maxdim::Integer=MAXDIM
+)
+    length(gates) == length(spans) || throw(ArgumentError("gates and spans must have the same length"))
+    for (G, span) in zip(gates, spans)
+        _evolve_uniform!(ψ, G; span, maxdim)
+    end
+    return ψ
+end
+
+_normalize_spans(ψ::iMPS, gates::AbstractVector{<:AbstractMatrix}, spans::Nothing) =
+    [operator_span(ψ, G) for G in gates]
+
+function _normalize_spans(
+    ψ::iMPS,
+    gates::AbstractVector{<:AbstractMatrix},
+    spans::Union{Integer,AbstractVector{<:Integer}}
+)
+    vals = spans isa Integer ? fill(spans, length(gates)) : collect(Int, spans)
+    length(vals) == length(gates) || throw(ArgumentError("gates and spans must have the same length"))
+    return vals
 end
 
 """
@@ -214,6 +242,117 @@ function scarfinder!(
     end
     if refine
         step! = ψ0 -> scarfinder_step!(ψ0, h, refine_dt, χ; kwargs...)
+        _minimize_on_trajectory!(x -> ent_S(x, x.n), step!, ψ, refine_step)
+    end
+    return ψ
+end
+
+"""
+    floquet_scarfinder_step!(ψ, U, χ; keywords...)
+    floquet_scarfinder_step!(ψ, Us, χ; keywords...)
+
+Perform one Floquet ScarFinder step.
+
+This is the Floquet analogue of `scarfinder_step!`. Instead of generating
+real-time evolution from a static Hamiltonian, it applies one Floquet period
+described by either:
+- a single local Floquet gate `U`, or
+- a sequence of local gates `Us` making up one drive period.
+
+After one Floquet period, the state is truncated back to bond dimension `χ`.
+
+Keyword arguments:
+- `ncycle=1`: number of Floquet periods to apply before truncation.
+- `span` / `spans`: operator support of the gate or gates. If omitted, each span
+  is inferred with `operator_span`.
+- `maxdim=MAXDIM`: temporary bond dimension used during the unitary evolution.
+- `cutoff=SVDTOL`: truncation cutoff used when compressing back to bond dimension `χ`.
+"""
+function floquet_scarfinder_step!(
+    ψ::iMPS,
+    U::AbstractMatrix,
+    χ::Integer;
+    ncycle::Integer=1,
+    span::Union{Integer,Nothing}=nothing,
+    maxdim::Integer=MAXDIM,
+    cutoff::Real=SVDTOL
+)
+    spans = isnothing(span) ? [operator_span(ψ, U)] : [Int(span)]
+    gates = [U]
+    for _ in 1:ncycle
+        _apply_sequence!(ψ, gates; spans, maxdim)
+    end
+    _truncate_unitcell!(ψ, χ; cutoff)
+    return ψ
+end
+
+function floquet_scarfinder_step!(
+    ψ::iMPS,
+    Us::AbstractVector{<:AbstractMatrix},
+    χ::Integer;
+    ncycle::Integer=1,
+    spans::Union{Nothing,Integer,AbstractVector{<:Integer}}=nothing,
+    maxdim::Integer=MAXDIM,
+    cutoff::Real=SVDTOL
+)
+    local_spans = _normalize_spans(ψ, Us, spans)
+    for _ in 1:ncycle
+        _apply_sequence!(ψ, Us; spans=local_spans, maxdim)
+    end
+    _truncate_unitcell!(ψ, χ; cutoff)
+    return ψ
+end
+
+"""
+    floquet_scarfinder!(ψ, U, χ, N; keywords...)
+    floquet_scarfinder!(ψ, Us, χ, N; keywords...)
+
+Run `N` Floquet ScarFinder iterations in place.
+
+This routine repeatedly applies one Floquet period, truncates back to bond
+dimension `χ`, and optionally refines the final answer by selecting the
+minimum-entanglement point on a short Floquet trajectory.
+
+Keyword arguments:
+- `refine=true`: enable the minimum-entanglement refinement scan.
+- `refine_step=1000`: number of trial points used in the refinement scan.
+
+All keyword arguments accepted by `floquet_scarfinder_step!` are also supported.
+The return value is `ψ`, mutated in place.
+"""
+function floquet_scarfinder!(
+    ψ::iMPS,
+    U::AbstractMatrix,
+    χ::Integer,
+    N::Integer;
+    refine::Bool=true,
+    refine_step::Integer=1000,
+    kwargs...
+)
+    for _ in 1:N
+        floquet_scarfinder_step!(ψ, U, χ; kwargs...)
+    end
+    if refine
+        step! = ψ0 -> floquet_scarfinder_step!(ψ0, U, χ; kwargs...)
+        _minimize_on_trajectory!(x -> ent_S(x, x.n), step!, ψ, refine_step)
+    end
+    return ψ
+end
+
+function floquet_scarfinder!(
+    ψ::iMPS,
+    Us::AbstractVector{<:AbstractMatrix},
+    χ::Integer,
+    N::Integer;
+    refine::Bool=true,
+    refine_step::Integer=1000,
+    kwargs...
+)
+    for _ in 1:N
+        floquet_scarfinder_step!(ψ, Us, χ; kwargs...)
+    end
+    if refine
+        step! = ψ0 -> floquet_scarfinder_step!(ψ0, Us, χ; kwargs...)
         _minimize_on_trajectory!(x -> ent_S(x, x.n), step!, ψ, refine_step)
     end
     return ψ
