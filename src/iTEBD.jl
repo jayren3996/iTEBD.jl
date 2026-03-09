@@ -11,6 +11,7 @@ const KRLOV_POWER = 100
 # INCLUDE
 #---------------------------------------------------------------------------------------------------
 using LinearAlgebra, SparseArrays, TensorOperations, KrylovKit
+using ITensors, ITensorMPS
 import Base: eltype, getindex, setindex!
 import LinearAlgebra: conj
 
@@ -22,6 +23,6 @@ include("Schmidt.jl")
 include("Block.jl")
 include("Krylov.jl")
 include("Miscellaneous.jl")
-
+include("ScarFinder.jl")
 
 end
