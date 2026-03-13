@@ -157,6 +157,10 @@ Keyword arguments:
 - `target=nothing`: target energy density. If not `nothing`, an energy correction is applied.
 - `tol=1e-6`, `α=0.1`, `maxstep=50`: parameters for the energy correction.
 - `cutoff=SVDTOL`: truncation cutoff used when compressing back to bond dimension `χ`.
+
+When `dt` is a microscopic gate time but each ScarFinder iteration is intended to
+represent a larger physical interval `Δt`, set `nstep ≈ Δt / dt`. For example,
+`dt = 0.01` and `Δt = 0.1` should typically use `nstep = 10`.
 """
 function scarfinder_step!(
     ψ::iMPS,
@@ -178,6 +182,103 @@ function scarfinder_step!(
     end
     _truncate_unitcell!(ψ, χ; cutoff)
     isnothing(target) || _energy_fix!(ψ, h, χ; span, target, tol, α, maxstep)
+    return ψ
+end
+
+"""
+    scarfinder_step!(ψ, G, χ; keywords...)
+
+Perform one gate-based ScarFinder step.
+
+This variant is useful when the driving object is already given as a local gate,
+for example a projected Floquet-like step such as `G = P * U`. The routine:
+
+1. applies the gate `G`,
+2. truncates the state back to bond dimension `χ`.
+
+Unlike the Hamiltonian-based method, this variant does not perform energy fixing.
+
+Keyword arguments:
+- `nstep=1`: number of times to apply `G` before truncation.
+- `maxdim=MAXDIM`: temporary bond dimension used during the gate evolution.
+- `span=operator_span(ψ, G)`: number of sites acted on by `G`.
+- `cutoff=SVDTOL`: truncation cutoff used when compressing back to bond dimension `χ`.
+
+This gate-only variant does not perform energy fixing. If the intended workflow
+uses a custom gate for evolution but still needs Hamiltonian-based energy
+correction, prefer `scarfinder_step!(ψ, G, h, χ; ...)`.
+"""
+function scarfinder_step!(
+    ψ::iMPS,
+    G::AbstractMatrix,
+    χ::Integer;
+    nstep::Integer=1,
+    maxdim::Integer=MAXDIM,
+    span::Integer=operator_span(ψ, G),
+    cutoff::Real=SVDTOL
+)
+    for _ in 1:nstep
+        _evolve_uniform!(ψ, G; span, maxdim)
+    end
+    _truncate_unitcell!(ψ, χ; cutoff)
+    return ψ
+end
+
+"""
+    scarfinder_step!(ψ, G, h, χ; keywords...)
+
+Perform one gate-based ScarFinder step with Hamiltonian-based energy fixing.
+
+This variant is designed for cases where the update rule is given by a local gate
+`G`, but the target constraint should still be imposed with respect to a local
+Hamiltonian `h`. A typical example is a projected update such as `G = P * U`
+in the PXP model.
+
+The routine:
+
+1. applies the gate `G`,
+2. truncates the state back to bond dimension `χ`,
+3. optionally applies the same energy-fixing step used by the Hamiltonian-based
+   ScarFinder, now measured with `h`.
+
+Keyword arguments:
+- `nstep=1`: number of times to apply `G` before truncation.
+- `maxdim=MAXDIM`: temporary bond dimension used during the gate evolution.
+- `span=operator_span(ψ, G)`: number of sites acted on by `G`.
+- `hspan=operator_span(ψ, h)`: number of sites acted on by `h`.
+- `target=nothing`: target energy density. If not `nothing`, an energy correction is applied.
+- `tol=1e-6`, `α=0.1`, `maxstep=50`: parameters for the energy correction.
+- `cutoff=SVDTOL`: truncation cutoff used when compressing back to bond dimension `χ`.
+
+For constrained models such as PXP, it is common to choose `G` as a projected
+update that restores the physical subspace after truncation, while `h` remains
+the unprojected local Hamiltonian density used for energy fixing. These two
+objects should generally not be conflated.
+
+As with the Hamiltonian-based interface, if `G` is built from a microscopic time
+step `dt` but one ScarFinder iteration should represent a larger interval `Δt`,
+set `nstep ≈ Δt / dt`.
+"""
+function scarfinder_step!(
+    ψ::iMPS,
+    G::AbstractMatrix,
+    h::AbstractMatrix,
+    χ::Integer;
+    nstep::Integer=1,
+    maxdim::Integer=MAXDIM,
+    span::Integer=operator_span(ψ, G),
+    hspan::Integer=operator_span(ψ, h),
+    target::Union{Real,Nothing}=nothing,
+    tol::Real=1e-6,
+    α::Real=0.1,
+    maxstep::Integer=50,
+    cutoff::Real=SVDTOL
+)
+    for _ in 1:nstep
+        _evolve_uniform!(ψ, G; span, maxdim)
+    end
+    _truncate_unitcell!(ψ, χ; cutoff)
+    isnothing(target) || _energy_fix!(ψ, h, χ; span=hspan, target, tol, α, maxstep)
     return ψ
 end
 
@@ -215,6 +316,77 @@ function scarfinder!(
     end
     if refine
         step! = ψ0 -> scarfinder_step!(ψ0, h, refine_dt, χ; kwargs...)
+        _minimize_on_trajectory!(x -> ent_S(x, x.n), step!, ψ, refine_step)
+    end
+    return ψ
+end
+
+"""
+    scarfinder!(ψ, G, χ, N; keywords...)
+
+Run `N` gate-based ScarFinder iterations in place.
+
+This is the high-level companion of `scarfinder_step!(ψ, G, χ; ...)` and is
+intended for cases where the update rule is already provided as a local gate,
+for example `G = P * U` in constrained or projected dynamics.
+
+Keyword arguments:
+- `refine=true`: enable the minimum-entanglement trajectory scan.
+- `refine_step=1000`: number of trial points in the refinement scan.
+
+All keyword arguments accepted by `scarfinder_step!(ψ, G, χ; ...)` are also supported.
+The return value is `ψ`, mutated in place.
+"""
+function scarfinder!(
+    ψ::iMPS,
+    G::AbstractMatrix,
+    χ::Integer,
+    N::Integer;
+    refine::Bool=true,
+    refine_step::Integer=1000,
+    kwargs...
+)
+    for _ in 1:N
+        scarfinder_step!(ψ, G, χ; kwargs...)
+    end
+    if refine
+        step! = ψ0 -> scarfinder_step!(ψ0, G, χ; kwargs...)
+        _minimize_on_trajectory!(x -> ent_S(x, x.n), step!, ψ, refine_step)
+    end
+    return ψ
+end
+
+"""
+    scarfinder!(ψ, G, h, χ, N; keywords...)
+
+Run `N` gate-based ScarFinder iterations in place while using `h` for energy fixing.
+
+This is the high-level interface for projected or constrained dynamics where the
+update rule is already encoded in a gate `G`, but the energy target should still
+be measured using a Hamiltonian density `h`.
+
+Keyword arguments:
+- `refine=true`: enable the minimum-entanglement trajectory scan.
+- `refine_step=1000`: number of trial points in the refinement scan.
+
+All keyword arguments accepted by `scarfinder_step!(ψ, G, h, χ; ...)` are also supported.
+The return value is `ψ`, mutated in place.
+"""
+function scarfinder!(
+    ψ::iMPS,
+    G::AbstractMatrix,
+    h::AbstractMatrix,
+    χ::Integer,
+    N::Integer;
+    refine::Bool=true,
+    refine_step::Integer=1000,
+    kwargs...
+)
+    for _ in 1:N
+        scarfinder_step!(ψ, G, h, χ; kwargs...)
+    end
+    if refine
+        step! = ψ0 -> scarfinder_step!(ψ0, G, h, χ; kwargs...)
         _minimize_on_trajectory!(x -> ent_S(x, x.n), step!, ψ, refine_step)
     end
     return ψ

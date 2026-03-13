@@ -1,49 +1,98 @@
 # iTEBD.jl
 
-`iTEBD.jl` is a Julia package for infinite time-evolving block decimation (iTEBD)
-calculations on translationally invariant one-dimensional systems.
+`iTEBD.jl` is a Julia package for infinite time-evolving block decimation on
+translationally invariant one-dimensional systems.
 
-The package focuses on:
+The package is built around a compact `iMPS` representation and provides:
+
 - infinite matrix-product states with a finite unit cell,
 - gate-based real- and imaginary-time evolution,
-- canonicalization and basic transfer-matrix observables,
-- a compact hybrid `ScarFinder` workflow for low-entanglement state searches.
+- Schmidt canonicalization and basic transfer-matrix observables,
+- a ScarFinder workflow for low-entanglement state searches,
+- a mixed `gate + Hamiltonian` ScarFinder interface for constrained models such as PXP.
 
 ## Installation
 
-Install from a Julia REPL with:
+Install from a Julia REPL:
 
 ```julia
 pkg> add https://github.com/jayren3996/iTEBD.jl
 ```
 
-## Core API
+Then load the package with:
 
-The most commonly used entry points are:
+```julia
+using iTEBD
+```
 
-- `iMPS(Γs; renormalize=true)`: build an infinite MPS from a list of local tensors.
-- `rand_iMPS(T, n, d, dim)`: random canonicalized `iMPS`.
-- `product_iMPS(vectors)`: bond-dimension-1 product state on a finite unit cell.
-- `canonical!(ψ)`: bring an `iMPS` to Schmidt-canonical form.
-- `applygate!(ψ, G, i, j; maxdim, cutoff, renormalize)`: apply a local gate.
-- `inner_product(ψ1, ψ2)`: overlap per unit cell.
-- `energy_density(ψ, h)`: unit-cell averaged expectation value of a local operator.
-- `scarfinder_step!` and `scarfinder!`: hybrid scar-search routines.
+## Core Ideas
+
+### `iMPS`
+
+An `iMPS` stores one periodic unit cell of an infinite matrix-product state:
+
+- `Γ`: local tensors,
+- `λ`: Schmidt values on each bond,
+- `n`: number of sites in the unit cell.
+
+This package uses a right-canonical convention in which the right Schmidt values
+are absorbed into each local tensor. After calling `canonical!`, the entanglement
+structure is stored in `λ` and the local tensors are right-canonical.
+
+### Local Gates
+
+Time evolution is implemented by repeatedly applying a local gate:
+
+```julia
+applygate!(ψ, G, i, j; maxdim=MAXDIM, cutoff=SVDTOL, renormalize=true)
+```
+
+where:
+
+- `ψ` is an `iMPS`,
+- `G` is a dense local operator,
+- `i:j` specifies the support within the periodic unit cell,
+- `maxdim` controls the temporary bond dimension during truncation.
+
+## Main API
+
+These are the entry points you are most likely to use:
+
+- `iMPS(Γs; renormalize=true)`
+- `rand_iMPS(T, n, d, dim)`
+- `product_iMPS(vectors)`
+- `canonical!(ψ)`
+- `applygate!(ψ, G, i, j; ...)`
+- `inner_product(ψ1, ψ2)`
+- `energy_density(ψ, h; span=...)`
+- `energy_span(n, d, h; ...)`
+- `scarfinder_step!`
+- `scarfinder!`
 
 ## Quick Start
 
-### States
+### Random State
 
-An `iMPS` stores:
-- `Γ`: local tensors for one unit cell,
-- `λ`: Schmidt spectra on each bond,
-- `n`: number of sites in the unit cell.
+```julia
+using iTEBD
 
-The convention used in this package absorbs the right Schmidt values into each
-local tensor. After canonicalization, the tensors are right-canonical and the
-vectors `λ[i]` contain the entanglement data.
+psi = rand_iMPS(ComplexF64, 2, 2, 4)
+```
 
-### Example: AKLT Ground State By Imaginary-Time iTEBD
+This creates a random two-site unit-cell state with local dimension `2` and
+bond dimension `4`.
+
+### Product State
+
+```julia
+using iTEBD
+
+psi = product_iMPS(ComplexF64, [[0, 1], [1, 0], [0, 1], [1, 0]])
+```
+
+This is the $Z_2$ product state on a four-site unit cell.
+
+### Imaginary-Time AKLT Example
 
 ```julia
 using iTEBD, LinearAlgebra
@@ -66,52 +115,104 @@ for _ in 1:300
 end
 ```
 
-### Example: General ScarFinder Workflow
+## ScarFinder
+
+The package includes a general ScarFinder workflow for low-entanglement state
+searches. There are two useful interfaces:
+
+- Hamiltonian-based:
+  `scarfinder!(ψ, h, dt, χ, N; ...)`
+- Gate-based with Hamiltonian energy fixing:
+  `scarfinder!(ψ, G, h, χ, N; ...)`
+
+The second form is especially useful in constrained models where the update rule
+is more naturally written as a projected gate rather than a pure exponential
+$e^{-i dt h}$.
+
+### PXP ScarFinder Example
+
+This is the recommended ScarFinder example for the package.
 
 ```julia
 using iTEBD, LinearAlgebra
 
-h = begin
-    zz = -[1 0 0 -1;
-           0 -1 -1 0;
-           0 -1 -1 0;
-          -1 0 0 1]
-    x = [0 1; 1 0]
-    z = [1 0; 0 -1]
-    h1 = -0.5 * z - 1.05 * x
-    zz + (kron(h1, I(2)) + kron(I(2), h1)) / 2
-end
+# Projector entering the PXP Hamiltonian.
+P0 = [0 0; 0 1]
 
-psi = rand_iMPS(ComplexF64, 2, 2, 2)
+# Local excitation projector used for the blockade constraint.
+N1 = [1 0; 0 0]
 
-scarfinder!(psi, h, 0.01, 2, 200;
+X = [0 1; 1 0]
+
+# Three-site local PXP Hamiltonian density.
+h_pxp = kron(P0, X, P0)
+
+# Local no-double-excitation projector used to repair truncation artifacts.
+no_double_2 = Matrix{Float64}(I, 4, 4) - kron(N1, N1)
+proj_pxp = kron(no_double_2, I(2)) * kron(I(2), no_double_2)
+
+# Microscopic gate and projected ScarFinder gate.
+dt = 0.01
+G = proj_pxp * exp(-1im * dt * h_pxp)
+
+# Z2 initial state on a four-site unit cell.
+psi = product_iMPS(ComplexF64, [[0, 1], [1, 0], [0, 1], [1, 0]])
+
+# Use the Z2 energy density as the target.
+target = energy_density(psi, h_pxp; span=3)
+
+# If one ScarFinder step is meant to represent Δt = 0.1, use nstep = 10.
+scarfinder!(psi, G, h_pxp, 2, 200;
+    span=3,
+    hspan=3,
     nstep=10,
-    target=-1.0,
-    maxdim=64,
+    target=target,
+    maxdim=32,
 )
-
-println("energy density = ", energy_density(psi, h))
-println("entanglement   = ", iTEBD.ent_S(psi, psi.n))
 ```
 
-`scarfinder!` infers the operator range from the local Hilbert-space dimension
-of `ψ`, so the same interface works for 2-site, 3-site, and longer local operators
-as long as they are passed as dense matrices compatible with `applygate!`.
+### Important ScarFinder Notes
+
+- If the gate is built from a microscopic time step $dt$ but each ScarFinder
+  iteration is supposed to represent a larger interval $\Delta t$, choose
+  `nstep ≈ Δt / dt`.
+- In constrained models such as PXP, the projector used in the ScarFinder gate
+  is often **not** the same object as the projector appearing in the Hamiltonian
+  density. Keeping `G` and `h` separate in the API is intentional.
+- The mixed interface
+  `scarfinder!(ψ, G, h, χ, N; ...)`
+  is the one to use when the evolution rule is gate-based but energy fixing
+  should still be performed with respect to a Hamiltonian density.
 
 ## Example Notebooks
 
 The `examples/` folder contains runnable notebooks:
 
-- `CanonicalForm.ipynb`: canonicalization diagnostics.
-- `AKLT_GS.ipynb`: imaginary-time AKLT ground-state calculation.
-- `PXP.ipynb`: short-time PXP dynamics from the `Z₂` state.
-- `PXP_ScarFinder.ipynb`: compact PXP scar-search workflow using `scarfinder!`.
+- `CanonicalForm.ipynb`
+  canonicalization diagnostics and sanity checks.
+- `AKLT_GS.ipynb`
+  imaginary-time AKLT ground-state evolution.
+- `PXP.ipynb`
+  short-time PXP dynamics from the $Z_2$ product state.
+- `PXP_ScarFinder.ipynb`
+  PXP ScarFinder search using the mixed `gate + Hamiltonian` interface.
 
-Each notebook starts with:
+Each notebook begins with:
 
 ```julia
 import Pkg
 Pkg.activate("..")
 ```
 
-so they can be run directly from the repository checkout.
+so it can be run directly from the repository checkout.
+
+## Current Scope
+
+`iTEBD.jl` is intentionally fairly direct and low-level. The package assumes:
+
+- dense local operators,
+- explicit control over unit-cell structure,
+- manual selection of gate supports and truncation parameters.
+
+That keeps it flexible for exploratory work, especially for custom ScarFinder
+protocols and constrained dynamics.
