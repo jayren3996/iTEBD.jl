@@ -113,6 +113,15 @@ Bring `ψ` to Schmidt-canonical form in place.
 
 This is the standard normalization step used throughout the package after
 applying gates or rebuilding an `iMPS` from raw tensors.
+
+Convention note:
+- The package stores right-canonical tensors `B_i = Γ_i λ_i`.
+- The Schmidt spectrum on bond `i` is still kept separately as `λ[i]`.
+- Calling `ψ[i]` returns the bare Vidal tensor `Γ_i` together with `λ[i]`
+  by dividing out the absorbed right Schmidt values.
+
+This routine assumes the state is injective and is the standard
+canonicalization path used by the package.
 """
 function canonical!(ψ::iMPS; maxdim=MAXDIM, cutoff=SVDTOL, renormalize=true)
     ψ.Γ[:], ψ.λ[:] = schmidt_canonical(ψ.Γ, ψ.λ[end]; maxdim, cutoff, renormalize)
@@ -124,6 +133,15 @@ end
 #---------------------------------------------------------------------------------------------------
 eltype(::iMPS{T}) where T = T
 #---------------------------------------------------------------------------------------------------
+"""
+    ψ[i]
+
+Return the bare Vidal tensor `Γ_i` and Schmidt values `λ[i]` for site `i`.
+
+The stored tensor in `ψ.Γ[i]` is the right-canonical tensor
+`B_i = Γ_i λ_i`, so indexing divides out the absorbed right Schmidt
+values before returning the local tensor.
+"""
 function getindex(mps::iMPS, i::Integer)
     i = mod(i-1, mps.n) + 1
     Γ, λ = copy(mps.Γ[i]), mps.λ[i]
@@ -156,6 +174,9 @@ end
 
 Expectation value of the local operator `O` acting on the contiguous region
 from site `i` to site `j` inside the periodic unit cell of `ψ`.
+
+The contraction is performed directly with the stored tensors
+`B_i = Γ_i λ_i`.
 """
 function expect(ψ::iMPS, O::AbstractMatrix, i::Integer, j::Integer)
     Γ = ψ.Γ[j>=i ? (i:j) : [i:ψ.n; 1:j]]
@@ -174,4 +195,3 @@ end
 
 #---------------------------------------------------------------------------------------------------
 gtrm(mps1::iMPS, mps2::iMPS) = gtrm(mps1.Γ, mps2.Γ)
-

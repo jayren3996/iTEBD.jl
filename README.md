@@ -1,5 +1,7 @@
 # iTEBD.jl
 
+[![Docs](https://img.shields.io/badge/docs-Documenter-blue.svg)](https://jayren3996.github.io/iTEBD.jl/dev/)
+
 `iTEBD.jl` is a Julia package for infinite time-evolving block decimation on
 translationally invariant one-dimensional systems.
 
@@ -38,6 +40,13 @@ An `iMPS` stores one periodic unit cell of an infinite matrix-product state:
 This package uses a right-canonical convention in which the right Schmidt values
 are absorbed into each local tensor. After calling `canonical!`, the entanglement
 structure is stored in `λ` and the local tensors are right-canonical.
+
+More explicitly, the stored tensors are
+$$
+B_i = \Gamma_i \lambda_i,
+$$
+so `ψ.Γ[i]` is the right-canonical tensor $B_i$, while `ψ[i]` returns the bare
+Vidal tensor $\Gamma_i$ together with `λ[i]`.
 
 ### Local Gates
 
@@ -81,6 +90,12 @@ psi = rand_iMPS(ComplexF64, 2, 2, 4)
 
 This creates a random two-site unit-cell state with local dimension `2` and
 bond dimension `4`.
+
+To inspect the bare Vidal tensor on site `1`, use:
+
+```julia
+Gamma1, lambda1 = psi[1]
+```
 
 ### Product State
 
@@ -205,6 +220,12 @@ Pkg.activate("..")
 ```
 
 so it can be run directly from the repository checkout.
+
+## Documentation
+
+The package manual is built with Documenter.jl and published at:
+
+- <https://jayren3996.github.io/iTEBD.jl/dev/>
 
 ## Current Scope
 

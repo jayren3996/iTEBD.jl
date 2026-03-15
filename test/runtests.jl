@@ -3,7 +3,6 @@ using Test
 using LinearAlgebra
 using TensorOperations
 using .iTEBD
-import .iTEBD: block_canonical, spin
 #---------------------------------------------------------------------------------------------------
 # Constant Objects
 #---------------------------------------------------------------------------------------------------
@@ -26,6 +25,10 @@ const GHZ = begin
     tensor
 end
 
+const S1X = sqrt(2) / 2 * [0 1 0; 1 0 1; 0 1 0]
+const S1Y = sqrt(2) / 2 * 1im * [0 -1 0; 1 0 -1; 0 1 0]
+const S1Z = [1 0 0; 0 0 0; 0 0 -1]
+
 #---------------------------------------------------------------------------------------------------
 # Test imaginary-time iTEBD 
 #
@@ -37,23 +40,23 @@ end
     rdim = 50
 
     GA, GB = begin
-        ss = spin((1,"xx"), (1,"yy"), (1,"zz"), D=3)
+        ss = kron(S1X, S1X) + kron(S1Y, S1Y) + kron(S1Z, S1Z)
         H = ss + 1/3*ss^2 + 2/3*I(9)
         expH = exp(- dt * H)
-        gate(expH, [1,2], bound=rdim), gate(expH, [2,1], bound=rdim)
+        expH, expH
     end
     
     mps = rand_iMPS(2, 3, rdim)
     
     println("First-time run:")
     @time for i=1:1000
-        applygate!(mps, GA)
-        applygate!(mps, GB)
+        applygate!(mps, GA, 1, 2; maxdim=rdim)
+        applygate!(mps, GB, 2, 1; maxdim=rdim)
     end
 
     @test inner_product(mps, AKLT_MPS) ≈ 1.0 atol=1e-5
     if size(mps.Γ[1]) != (2, 3, 2)
-        mps = canonical(mps, trim=true, bound=rdim)
+        canonical!(mps; maxdim=rdim)
     end
     @test size(mps.Γ[1]) == (2, 3, 2)
     @test size(mps.Γ[2]) == (2, 3, 2)
@@ -65,8 +68,8 @@ end
     println("Second-time run:")
     mps = rand_iMPS(2, 3, rdim)
     @time for i=1:1000
-        applygate!(mps, GA)
-        applygate!(mps, GB)
+        applygate!(mps, GA, 1, 2; maxdim=rdim)
+        applygate!(mps, GB, 2, 1; maxdim=rdim)
     end
 end
 #---------------------------------------------------------------------------------------------------
@@ -75,20 +78,20 @@ end
     rdim = 50
 
     GA, GB, GC = begin
-        ss = spin((1,"xx"), (1,"yy"), (1,"zz"), D=3)
+        ss = kron(S1X, S1X) + kron(S1Y, S1Y) + kron(S1Z, S1Z)
         H = ss + 1/3*ss^2 + 2/3*I(9)
         expH = exp(- dt * H)
-        gate(expH, [1,2], bound=rdim), gate(expH, [2,3], bound=rdim), gate(expH, [3,1], bound=rdim)
+        expH, expH, expH
     end
 
     mps = rand_iMPS(3, 3, rdim)
 
     @time for i=1:1000
-        applygate!(mps, GA)
-        applygate!(mps, GB)
-        applygate!(mps, GC)
+        applygate!(mps, GA, 1, 2; maxdim=rdim)
+        applygate!(mps, GB, 2, 3; maxdim=rdim)
+        applygate!(mps, GC, 3, 1; maxdim=rdim)
     end
-    mps = canonical(mps, trim=true, bound=rdim)
+    canonical!(mps; maxdim=rdim)
 
     @test size(mps.Γ[1]) == (2, 3, 2)
     @test size(mps.Γ[2]) == (2, 3, 2)
@@ -99,72 +102,6 @@ end
     @test inner_product(mps, AKLT_MPS_3) ≈ 1.0 atol=1e-5
 end
 
-#---------------------------------------------------------------------------------------------------
-# Test Block-canonical
-#---------------------------------------------------------------------------------------------------
-@testset "GHZ State" begin
-    target_1 = zeros(1,2,1)
-    target_1[1,1,1] = 1
-    target_2 = zeros(1,2,1)
-    target_2[1,2,1] = 1
-    function checkres(res)
-        b1 = isapprox(inner_product(res, target_1), 1.0, atol=1e-5)
-        b2 = isapprox(inner_product(res, target_2), 1.0, atol=1e-5)
-        return [b1, b2]
-    end
-    for i = 1:100
-        # GHZ under random unitary rotation
-        rand_U = exp( -1im * Hermitian( rand(2, 2) ) )
-        @tensor GHZ_RU[:] := rand_U[-1,1] * GHZ[1,-2,2] * rand_U'[2,-3]
-        res = block_canonical(GHZ_RU)
-        @test length(res) == 2
 
-        test1 = checkres(res[1])
-        test2 = checkres(res[2])
-        @test any(test1)
-        @test any(test2)
-        @test test1 .+ test2 == [1, 1]
-
-        # GHZ under random positive non-unitary rotation
-        rand_V = rand(2, 2) + I(2)
-        rand_Vi = inv(rand_V)
-        @tensor GHZ_RV[:] := rand_V[-1,1] * GHZ[1,-2,2] * rand_Vi[2,-3]
-        res = block_canonical(GHZ_RV)
-
-        @test length(res) == 2
-
-        test1 = checkres(res[1])
-        test2 = checkres(res[2])
-        @test any(test1)
-        @test any(test2)
-        @test test1 .+ test2 == [1, 1]
-    end
-end
-#---------------------------------------------------------------------------------------------------
-@testset "Double AKLT State" begin
-    double_aklt = zeros(4,3,4)
-    double_aklt[1:2, :, 1:2] .= AKLT
-    double_aklt[3:4, :, 3:4] .= AKLT
-    for i=1:100
-        # Double AKLT under random unitary rotation
-        rand_U = exp( -1im * Hermitian( rand(4, 4) ) )
-        @tensor double_aklt_RU[:] := rand_U[-1,1] * double_aklt[1,-2,2] * rand_U'[2,-3]
-        res = block_canonical(double_aklt)
-
-        @test length(res) == 2
-
-        @test inner_product(AKLT, res[1]) ≈ 1.0 atol=1e-5
-        @test inner_product(AKLT, res[2]) ≈ 1.0 atol=1e-5
-
-        # Double AKLT under random non-unitary rotation
-        rand_V = rand(4, 4)
-        rand_Vi = inv(rand_V)
-        @tensor double_aklt_RV[:] := rand_V[-1,1] * double_aklt[1,-2,2] * rand_Vi[2,-3]
-        res = block_canonical(double_aklt)
-
-        @test length(res) == 2
-
-        @test inner_product(AKLT, res[1]) ≈ 1.0 atol=1e-5
-        @test inner_product(AKLT, res[2]) ≈ 1.0 atol=1e-5
-    end
-end
+include("test_imps_canonical_api.jl")
+include("test_docs_smoke.jl")

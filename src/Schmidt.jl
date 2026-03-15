@@ -1,6 +1,15 @@
 #---------------------------------------------------------------------------------------------------
 # Schmidt Canonical Form
 #---------------------------------------------------------------------------------------------------
+function canonical_gauging(
+    Γ::AbstractArray{<:Number, 3},
+    L::AbstractMatrix,
+    R::AbstractMatrix
+)
+    @tensor Γ2[:] := R[-1,1] * Γ[1,-2,2] * L[2,-3]
+    Γ2
+end
+#---------------------------------------------------------------------------------------------------
 """
 schmidt_canonical(Γ; kerwords)
 
@@ -51,6 +60,17 @@ function schmidt_canonical(
     Γ_grouped = tensor_group(Γs)
 
     A, λ = schmidt_canonical(Γ_grouped, S; maxdim, cutoff, renormalize)
+    if isone(n)
+        Dl, d, Dr = size(A)
+        overlap = zeros(eltype(A), Dl, Dl)
+        for s in 1:d
+            As = reshape(A[:, s, :], Dl, Dr)
+            overlap .+= As * As'
+        end
+        scale = sqrt(real(tr(overlap)) / Dl)
+        A ./= scale
+        return [A], [λ]
+    end
     tensor_lmul!(λ, A)
     Γs, λs = tensor_decomp!(A, λ, n; maxdim, cutoff, renormalize)
     Γs, push!(λs, λ)
