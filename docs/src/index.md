@@ -9,6 +9,7 @@ focuses on stable workflows:
 - finite-unit-cell infinite matrix-product states,
 - Schmidt canonicalization in the injective setting,
 - local gate-based real- and imaginary-time evolution,
+- high-level gate sweeps with fixed or adaptive bond-dimension control,
 - basic transfer-matrix observables,
 - ScarFinder routines for low-entanglement state searches.
 
@@ -18,7 +19,8 @@ This manual is organized around the package's main workflows:
 
 - [Getting Started](getting-started.md) for installation and a first state.
 - [iMPS and Canonical Form](imps.md) for the package's tensor convention.
-- [Time Evolution](time-evolution.md) for local gate updates.
+- [Time Evolution](time-evolution.md) for local gate updates and adaptive
+  bond-dimension sweeps.
 - [Observables](observables.md) for overlaps and energy densities.
 - [ScarFinder](scarfinder.md) for low-entanglement search workflows.
 - [API Reference](api.md) for docstring-driven function reference.

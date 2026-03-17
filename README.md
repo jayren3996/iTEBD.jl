@@ -72,11 +72,14 @@ These are the entry points you are most likely to use:
 - `product_iMPS(vectors)`
 - `canonical!(ψ)`
 - `applygate!(ψ, G, i, j; ...)`
+- `evolve!(ψ, gates, steps; chi_policy=:fixed, ...)`
 - `inner_product(ψ1, ψ2)`
 - `energy_density(ψ, h; span=...)`
 - `energy_span(n, d, h; ...)`
 - `scarfinder_step!`
 - `scarfinder!`
+- `natural_bonddim(λ; q=1.5, alpha=0.5)`
+- `adaptive_bonddim(previous, λ; mindim, maxdim, q=1.5, alpha=0.5)`
 
 ## Quick Start
 
@@ -128,6 +131,38 @@ for _ in 1:300
     applygate!(psi, G, 1, 2; maxdim=8)
     applygate!(psi, G, 2, 1; maxdim=8)
 end
+```
+
+### Adaptive Bond-Dimension Heuristic
+
+If you want a non-decreasing bond dimension that adapts to the current Schmidt
+spectrum, you can now use the high-level evolution wrapper directly:
+
+```julia
+using iTEBD
+
+gates = [(G, 1, 2), (G, 2, 1)]
+
+evolve!(psi, gates, 100; chi_policy=:adaptive, maxdim=64)
+```
+
+`natural_bonddim(λ)` estimates an intrinsic rank from the Schmidt values using
+a Rényi effective rank with a mild tail penalty, while `adaptive_bonddim`
+enforces the ratchet
+`mindim <= χ(t) <= maxdim` with `χ(t + 1) >= χ(t)`.
+
+The parameter `q` controls boldness:
+
+- `q -> 1` is closer to entropy rank and grows more aggressively,
+- `q = 2` is the participation ratio and is more conservative,
+- `q = 1.5` is the default compromise.
+
+The `alpha` parameter increases sensitivity to distributed tail weight.
+
+If you want the old fixed-bond-dimension behavior, use:
+
+```julia
+evolve!(psi, gates, 100; maxdim=8)
 ```
 
 ## ScarFinder
