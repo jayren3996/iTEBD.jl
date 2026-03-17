@@ -52,6 +52,63 @@ function applygate!(
     return ψ
 end
 
+function _gate_indices(ψ::iMPS, i::Integer, j::Integer)
+    j > i ? collect(i:j) : [i:ψ.n; 1:j]
+end
+
+export evolve!
+"""
+    evolve!(ψ, gates, steps; chi_policy=:fixed, maxdim=MAXDIM, mindim=1, q=1.5, alpha=0.5, cutoff=SVDTOL, renormalize=true)
+
+Apply a sequence of local gates repeatedly for `steps` sweeps.
+
+Each element of `gates` must be a tuple `(G, i, j)` consisting of the local
+operator `G` and the support `i:j` inside the unit cell.
+
+With `chi_policy = :fixed`, each update is applied with the supplied `maxdim`.
+With `chi_policy = :adaptive`, each update is first probed up to `maxdim`, then
+the state is compressed back to a non-decreasing bond dimension chosen from the
+updated Schmidt spectra.
+"""
+function evolve!(
+    ψ::iMPS,
+    gates,
+    steps::Integer;
+    chi_policy::Symbol=:fixed,
+    maxdim::Integer=MAXDIM,
+    mindim::Integer=1,
+    q::Real=1.5,
+    alpha::Real=0.5,
+    cutoff::Real=SVDTOL,
+    renormalize::Bool=true
+)
+    steps >= 0 || throw(ArgumentError("steps must be non-negative"))
+    maxdim > 0 || throw(ArgumentError("maxdim must be positive"))
+    mindim > 0 || throw(ArgumentError("mindim must be positive"))
+    maxdim >= mindim || throw(ArgumentError("maxdim must be at least mindim"))
+
+    χ = min(maxdim, max(mindim, maximum(length.(ψ.λ))))
+
+    for _ in 1:steps
+        for gate in gates
+            G, i, j = gate
+            if chi_policy === :fixed
+                applygate!(ψ, G, i, j; maxdim, cutoff, renormalize)
+            elseif chi_policy === :adaptive
+                applygate!(ψ, G, i, j; maxdim, cutoff, renormalize)
+                for k in _gate_indices(ψ, i, j)
+                    χ = adaptive_bonddim(χ, ψ.λ[k]; mindim, maxdim, q, alpha, cutoff)
+                end
+                canonical!(ψ; maxdim=χ, cutoff, renormalize)
+            else
+                throw(ArgumentError("unknown chi_policy $(repr(chi_policy)); use :fixed or :adaptive"))
+            end
+        end
+    end
+
+    ψ
+end
+
 #---------------------------------------------------------------------------------------------------
 # Multi-Site Operators
 #---------------------------------------------------------------------------------------------------
