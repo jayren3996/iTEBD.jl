@@ -45,8 +45,13 @@ More explicitly, the stored tensors are
 $$
 B_i = \Gamma_i \lambda_i,
 $$
-so `ψ.Γ[i]` is the right-canonical tensor $B_i$, while `ψ[i]` returns the bare
-Vidal tensor $\Gamma_i$ together with `λ[i]`.
+so `ψ.Γ[i]` is the right-canonical tensor $B_i$, not the bare Vidal tensor.
+The accessor `ψ[i]` returns the bare Vidal tensor $\Gamma_i$ together with
+`λ[i]`.
+
+That distinction is important when comparing the package data layout with the
+standard iTEBD literature, where the symbol `Γ_i` usually refers to the bare
+Vidal tensor rather than the stored right-canonical tensor.
 
 ### Local Gates
 
