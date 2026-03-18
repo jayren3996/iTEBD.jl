@@ -168,16 +168,25 @@ evolve!(psi, gates, 100; maxdim=8)
 ## ScarFinder
 
 The package includes a general ScarFinder workflow for low-entanglement state
-searches. There are two useful interfaces:
+searches. One ScarFinder iteration in this implementation:
+
+1. evolves the current iMPS for a short real-time interval,
+2. projects it back to bond dimension `χ`,
+3. optionally applies a small imaginary-time energy correction.
+
+There are three public interfaces:
 
 - Hamiltonian-based:
   `scarfinder!(ψ, h, dt, χ, N; ...)`
+- Gate-based without energy fixing:
+  `scarfinder!(ψ, G, χ, N; ...)`
 - Gate-based with Hamiltonian energy fixing:
   `scarfinder!(ψ, G, h, χ, N; ...)`
 
 The second form is especially useful in constrained models where the update rule
-is more naturally written as a projected gate rather than a pure exponential
-$e^{-i dt h}$.
+is already given as a local gate, while the third form is the recommended one
+for constrained models where the evolution rule is a projected gate but the
+target energy should still be measured with an underlying Hamiltonian density.
 
 ### PXP ScarFinder Example
 
@@ -211,13 +220,20 @@ psi = product_iMPS(ComplexF64, [[0, 1], [1, 0], [0, 1], [1, 0]])
 # Use the Z2 energy density as the target.
 target = energy_density(psi, h_pxp; span=3)
 
-# If one ScarFinder step is meant to represent Δt = 0.1, use nstep = 10.
-scarfinder!(psi, G, h_pxp, 2, 200;
+# If one ScarFinder step is meant to represent Δt = 0.05, use nstep = 5.
+scarfinder!(psi, G, h_pxp, 2, 5;
     span=3,
     hspan=3,
-    nstep=10,
+    nstep=5,
     target=target,
-    maxdim=32,
+    maxdim=12,
+    refine=false,
+)
+
+(;
+    target_energy=target,
+    final_energy=energy_density(psi, h_pxp; span=3),
+    maxbond=maximum(length.(psi.λ)),
 )
 ```
 
@@ -233,6 +249,15 @@ scarfinder!(psi, G, h_pxp, 2, 200;
   `scarfinder!(ψ, G, h, χ, N; ...)`
   is the one to use when the evolution rule is gate-based but energy fixing
   should still be performed with respect to a Hamiltonian density.
+- `χ` is the target bond dimension after each projection step, while `maxdim`
+  is the larger temporary bond dimension used during the real-time evolution.
+- `target`, `tol`, `α`, and `maxstep` control the optional energy-fixing step
+  that compensates for energy drift caused by truncation.
+
+Reference:
+- J. Ren, A. Hallam, L. Ying, and Z. Papić, [ScarFinder: A Detector of Optimal
+  Scar Trajectories in Quantum Many-Body Dynamics](https://eprints.whiterose.ac.uk/id/eprint/238368/),
+  PRX Quantum 6, 040332 (2025).
 
 ## Example Notebooks
 
