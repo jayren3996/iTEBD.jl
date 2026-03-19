@@ -327,6 +327,13 @@ end
 
 Build the mixed transfer matrix between two local tensors.
 
+If `T1` and `T2` are local three-leg tensors with virtual indices
+`(α_{i-1}, α_i)` and `(β_{i-1}, β_i)`, this routine builds the dense matrix
+representation of the mixed transfer operator
+
+`E(T1, T2)_{(β_{i-1}, α_{i-1}), (β_i, α_i)} =
+    sum_s conj(T1[α_{i-1}, s, α_i]) * T2[β_{i-1}, s, β_i]`.
+
 Parameters:
 - `T1`, `T2`
   Local three-leg tensors with compatible physical dimensions.
@@ -336,7 +343,8 @@ Returns:
 
 Notes:
 - `gtrm(T, T)` is the ordinary transfer matrix of `T`.
-- This matrix is used in overlap and fixed-point computations.
+- This matrix is the one-site building block used in overlap and fixed-point
+  computations.
 """
 function gtrm(T1::AbstractArray{<:Number, 3}, T2::AbstractArray{<:Number, 3})
     i1, _, k1 = size(T2)
@@ -353,6 +361,11 @@ end
 
 Build the mixed transfer matrix for two full unit cells.
 
+For unit cells `T1s = [T1^(1), ..., T1^(n)]` and `T2s = [T2^(1), ..., T2^(n)]`,
+the returned matrix is the ordered product
+
+`E_cell(T1s, T2s) = E(T1^(1), T2^(1)) * ... * E(T1^(n), T2^(n))`.
+
 Parameters:
 - `T1s`, `T2s`
   Vectors of local tensors representing two unit cells of the same length.
@@ -360,6 +373,10 @@ Parameters:
 Returns:
 - Dense matrix representation of the mixed transfer operator for the full unit
   cell.
+
+Notes:
+- This is the transfer matrix whose dominant eigenvalue is used by
+  [`inner_product`](@ref) to define the overlap per unit cell.
 """
 function gtrm(
     T1s::AbstractVector{<:AbstractArray{<:Number, 3}},
@@ -376,9 +393,13 @@ end
 """
     trm(T::AbstractArray{<:Number, 3})
 
-Transfer matrix for MPS tensor `T`.
+Transfer matrix for a single local MPS tensor `T`.
 
 This is shorthand for `gtrm(T, T)`.
+
+Notes:
+- For a whole unit cell stored as a vector of tensors, use `gtrm(Ts, Ts)` to
+  construct the unit-cell transfer matrix.
 """
 function trm(T::AbstractArray{<:Number, 3}) 
     gtrm(T, T)

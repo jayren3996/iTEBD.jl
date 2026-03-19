@@ -408,6 +408,18 @@ end
 
 General transfer matrix between two `iMPS` objects.
 
+If `mps1` and `mps2` have a common unit-cell length `n`, this returns the
+unit-cell transfer matrix
+
+`E_cell(mps1, mps2) = E_1 * E_2 * ... * E_n`,
+
+where each `E_i` is the local mixed transfer matrix built from the stored local
+tensors `mps1.Γ[i]` and `mps2.Γ[i]`.
+
 This is a thin convenience wrapper for `gtrm(mps1.Γ, mps2.Γ)`.
+
+Notes:
+- The dominant eigenvalue of this unit-cell transfer matrix is the quantity used
+  by [`inner_product`](@ref) to define the overlap per unit cell.
 """
 gtrm(mps1::iMPS, mps2::iMPS) = gtrm(mps1.Γ, mps2.Γ)

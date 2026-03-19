@@ -204,19 +204,35 @@ export inner_product
     inner_product(T)
     inner_product(T1, T2)
 
-Return the dominant transfer-matrix overlap.
+Return the overlap per unit cell defined by the dominant eigenvalue of a
+transfer matrix.
 
-For `inner_product(T)`, this is the norm of a single tensor network transfer
-matrix. For `inner_product(T1, T2)`, it is the overlap per unit cell between
-two tensor networks or `iMPS` objects.
+For two translationally invariant tensor networks or `iMPS` objects with the
+same unit cell, this routine first constructs the mixed unit-cell transfer
+matrix
+
+`E_cell(T1, T2)`,
+
+and then returns
+
+`|λ_max(E_cell(T1, T2))|`,
+
+the magnitude of its dominant eigenvalue. For the one-argument form
+`inner_product(T)`, this reduces to the corresponding norm per unit cell,
+obtained from the dominant eigenvalue of the self-transfer matrix.
 
 Returns:
-- A scalar overlap per unit cell extracted from the dominant transfer-matrix
-  eigenvalue.
+- A scalar overlap or norm per unit cell extracted from the dominant
+  transfer-matrix eigenvalue.
 
 Notes:
-- This is not a finite-system inner product; it is the infinite-system overlap
-  associated with the dominant transfer matrix.
+- This is not the ordinary finite-system inner product obtained by contracting a
+  finite chain.
+- Instead, it is the infinite-system quantity associated with one periodic unit
+  cell of the transfer matrix.
+- For `iMPS` inputs, the relevant transfer matrix is the product over the whole
+  unit cell, not a single local tensor.
+- The implementation returns the absolute value of the dominant eigenvalue.
 """
 function inner_product(T)
     trmat = trm(T)
