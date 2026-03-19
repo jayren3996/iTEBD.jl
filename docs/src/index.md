@@ -25,6 +25,24 @@ This manual is organized around the package's main workflows:
 - [ScarFinder](scarfinder.md) for low-entanglement search workflows.
 - [API Reference](api.md) for docstring-driven function reference.
 
+The intended split is:
+
+- the markdown manual pages are written for human readers and emphasize
+  motivation, conventions, caveats, and workflow examples;
+- the generated API reference is written from the source docstrings and is
+  intentionally more explicit about signatures, argument meanings, return
+  values, and internal conventions.
+
+If you are new to the package, a good reading order is:
+
+1. [Getting Started](getting-started.md)
+2. [States and Canonical Form](imps.md)
+3. [Time Evolution](time-evolution.md)
+4. [Observables](observables.md)
+5. [ScarFinder Workflow](scarfinder.md) if you need the low-entanglement search
+   routines
+6. [API Reference](api.md) when you want exact signatures and keyword defaults
+
 ## A Minimal Example
 
 ```@example

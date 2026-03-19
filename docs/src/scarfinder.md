@@ -124,6 +124,11 @@ If you want one ScarFinder iteration to represent a larger physical interval
 `dt = 0.01` but you want each ScarFinder iteration to represent `Δt = 0.05`,
 set `nstep = 5`.
 
+As a practical rule, `nstep = 1` is usually too small for ScarFinder because it
+reduces one iteration to a single microscopic evolution step before projection.
+The implementation still accepts this for backwards compatibility, but now
+emits a warning when `nstep == 1`.
+
 The two bond dimensions also play different roles:
 
 - `maxdim`

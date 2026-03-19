@@ -83,8 +83,8 @@ These are the entry points you are most likely to use:
 - `energy_span(n, d, h; ...)`
 - `scarfinder_step!`
 - `scarfinder!`
-- `natural_bonddim(λ; q=1.5, alpha=0.5)`
-- `adaptive_bonddim(previous, λ; mindim, maxdim, q=1.5, alpha=0.5)`
+- `natural_bonddim(λ; q=1.0, alpha=0.1)`
+- `adaptive_bonddim(previous, λ; mindim, maxdim, q=1.0, alpha=0.1)`
 
 ## Quick Start
 
@@ -151,18 +151,64 @@ gates = [(G, 1, 2), (G, 2, 1)]
 evolve!(psi, gates, 100; chi_policy=:adaptive, maxdim=64)
 ```
 
-`natural_bonddim(λ)` estimates an intrinsic rank from the Schmidt values using
-a Rényi effective rank with a mild tail penalty, while `adaptive_bonddim`
-enforces the ratchet
-`mindim <= χ(t) <= maxdim` with `χ(t + 1) >= χ(t)`.
+The helper `natural_bonddim(λ; q=1.0, alpha=0.1)` first normalizes the Schmidt
+weights,
 
-The parameter `q` controls boldness:
+```math
+p_i = \frac{|\lambda_i|^2}{\sum_j |\lambda_j|^2},
+```
 
-- `q -> 1` is closer to entropy rank and grows more aggressively,
-- `q = 2` is the participation ratio and is more conservative,
-- `q = 1.5` is the default compromise.
+then defines a smooth effective rank
 
-The `alpha` parameter increases sensitivity to distributed tail weight.
+```math
+r_q =
+\begin{cases}
+\exp\!\left(-\sum_i p_i \log p_i\right), & q = 1, \\
+\left(\sum_i p_i^q\right)^{1/(1-q)}, & q \ne 1,
+\end{cases}
+```
+
+and finally applies a mild tail-weight correction
+
+```math
+\chi_{\mathrm{nat}} = r_q \bigl(1 + \alpha (1 - p_1)\bigr),
+```
+
+where `p_1` is the largest normalized Schmidt weight.
+
+`adaptive_bonddim(previous, λ; mindim, maxdim, ...)` then turns that smooth
+score into the actual bond dimension by ratcheting it between the requested
+bounds:
+
+```math
+\chi_{\mathrm{new}} =
+\min\!\left(\chi_{\max},
+\max\!\left(\chi_{\mathrm{prev}}, \chi_{\min},
+\left\lceil \chi_{\mathrm{nat}} \right\rceil\right)\right).
+```
+
+In this package, the words "aggressive" and "conservative" refer to bond
+truncation:
+
+- aggressive truncation keeps a bond dimension that is too small and can reduce
+  state fidelity;
+- conservative truncation keeps more Schmidt weight and usually improves
+  fidelity at higher cost.
+
+With that convention, the parameter trends are:
+
+- `q = 1` is the entropy-rank rule and is the default recommendation;
+- `q = 2` is the participation ratio / IPR and is more aggressive because it
+  discounts tails more strongly;
+- `q < 1` is more conservative than entropy rank and is useful when `q = 1`
+  still truncates too hard;
+- larger `alpha` is more conservative because it further protects distributed
+  Schmidt tails;
+- `alpha = 0` removes the explicit tail-amplification factor.
+
+The default `q = 1.0, alpha = 0.1` is meant to be a mild, fidelity-oriented
+choice: it keeps the entropy-rank baseline and adds only a small amount of
+extra tail protection.
 
 If you want the old fixed-bond-dimension behavior, use:
 
@@ -247,6 +293,10 @@ scarfinder!(psi, G, h_pxp, 2, 5;
 - If the gate is built from a microscopic time step $dt$ but each ScarFinder
   iteration is supposed to represent a larger interval $\Delta t$, choose
   `nstep ≈ Δt / dt`.
+- As a practical rule, `nstep = 1` is usually too small for ScarFinder because
+  it reduces one iteration to a single microscopic evolution step before
+  projection. The implementation accepts this for backwards compatibility, but
+  now emits a warning when `nstep == 1`.
 - In constrained models such as PXP, the projector used in the ScarFinder gate
   is often **not** the same object as the projector appearing in the Hamiltonian
   density. Keeping `G` and `h` separate in the API is intentional.

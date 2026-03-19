@@ -51,3 +51,16 @@ Pkg.activate("..")
 ```
 
 so it can be run directly from a repository checkout.
+
+## Where To Go Next
+
+After this page, the most useful next stops are:
+
+- [States and Canonical Form](imps.md) if you want to understand how `iMPS`,
+  `Γ`, and `λ` are stored in this package;
+- [Time Evolution](time-evolution.md) if you want to apply local gates or use
+  adaptive bond dimensions;
+- [Observables](observables.md) if you want overlaps, expectation values, and
+  energy densities;
+- [ScarFinder Workflow](scarfinder.md) if you want the iterative
+  low-entanglement search routines.

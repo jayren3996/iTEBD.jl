@@ -16,6 +16,34 @@ schmidt_canonical(Γ; kerwords)
 Schmidt Canonical Form
 1. Return a Schmidt canonical form.
 2. This algorithm assume there is no degeneracy.
+
+Parameters:
+- `Γ`
+  Local three-leg tensor or grouped local tensor representing one periodic block.
+- `S`
+  Schmidt values on the incoming bond of that block.
+
+Keyword arguments:
+- `maxdim=MAXDIM`
+  Maximum number of Schmidt values to retain in the canonicalized result.
+- `cutoff=SVDTOL`
+  Singular values smaller than this threshold are discarded.
+- `renormalize=true`
+  Whether to renormalize the retained Schmidt values.
+- `zerotol=ZEROTOL`
+  Threshold used when selecting positive eigenvalues of the transfer-matrix
+  fixed points.
+
+Returns:
+- `(Γ_new, S_new)` where `Γ_new` is the gauged canonical tensor and `S_new` is
+  the resulting Schmidt spectrum.
+
+Notes:
+- This routine is the low-level canonicalization kernel used by
+  [`canonical!`](@ref).
+- It assumes the state is in the non-degenerate injective setting.
+- The returned tensor has the right Schmidt values absorbed on its right bond,
+  matching the package storage convention.
 """
 function schmidt_canonical(
     Γ::AbstractArray{<:Number,3}, S::AbstractVector;
@@ -52,6 +80,33 @@ function schmidt_canonical(
 end
 #---------------------------------------------------------------------------------------------------
 # Multiple tensors
+"""
+    schmidt_canonical(Γs, S; maxdim=MAXDIM, cutoff=SVDTOL, renormalize=false)
+
+Canonicalize a full unit cell represented as a vector of local tensors.
+
+Parameters:
+- `Γs`
+  Vector of local three-leg tensors forming one periodic unit cell.
+- `S`
+  Schmidt spectrum on the incoming bond to the grouped unit cell.
+
+Keyword arguments:
+- `maxdim`, `cutoff`, `renormalize`
+  Passed through to the single-block [`schmidt_canonical`](@ref) kernel and the
+  subsequent decomposition.
+
+Returns:
+- `(Γs_new, λs_new)` where `Γs_new` are the stored right-canonical tensors for
+  the unit cell and `λs_new` are the Schmidt spectra on all bonds of that unit
+  cell.
+
+Notes:
+- For `length(Γs) == 1`, this routine returns a one-site unit cell and applies a
+  final normalization so the stored tensor is properly right-canonical.
+- For longer unit cells, the grouped canonical tensor is decomposed back into
+  site-local tensors with [`tensor_decomp!`](@ref).
+"""
 function schmidt_canonical(
     Γs::AbstractVector{<:AbstractArray{<:Number, 3}}, S::AbstractVector;
     maxdim=MAXDIM, cutoff=SVDTOL, renormalize=false

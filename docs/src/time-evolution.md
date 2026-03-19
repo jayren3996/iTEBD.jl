@@ -26,10 +26,63 @@ where each element of `gates` is a tuple `(G, i, j)`.
 For adaptive real- or imaginary-time evolution, `iTEBD.jl` provides two helper
 functions:
 
-- `natural_bonddim(λ; q=1.5, alpha=0.5)` estimates a smooth intrinsic bond
+- `natural_bonddim(λ; q=1.0, alpha=0.1)` estimates a smooth intrinsic bond
   dimension from a Schmidt spectrum `λ`.
 - `adaptive_bonddim(previous, λ; mindim, maxdim, ...)` turns that score into a
   non-decreasing bond dimension bounded between `mindim` and `maxdim`.
+
+The first helper is defined from the normalized Schmidt weights
+
+```math
+p_i = \frac{|\lambda_i|^2}{\sum_j |\lambda_j|^2},
+```
+
+through the Rényi effective rank
+
+```math
+r_q =
+\begin{cases}
+\exp\!\left(-\sum_i p_i \log p_i\right), & q = 1, \\
+\left(\sum_i p_i^q\right)^{1/(1-q)}, & q \ne 1,
+\end{cases}
+```
+
+and the tail-sensitive score
+
+```math
+\chi_{\mathrm{nat}} = r_q \bigl(1 + \alpha (1 - p_1)\bigr),
+```
+
+where `p_1` is the largest normalized Schmidt weight. The second helper turns
+that smooth score into an actual working bond dimension through the ratchet
+
+```math
+\chi_{\mathrm{new}} =
+\min\!\left(\chi_{\max},
+\max\!\left(\chi_{\mathrm{prev}}, \chi_{\min},
+\left\lceil \chi_{\mathrm{nat}} \right\rceil\right)\right).
+```
+
+This package uses the following truncation language throughout:
+
+- aggressive truncation means choosing a bond dimension that is too small and
+  therefore introduces larger truncation error and lower fidelity;
+- conservative truncation means keeping a larger bond dimension, usually
+  preserving fidelity better at higher cost.
+
+With that convention:
+
+- `q = 1` is the entropy-rank rule and is the default;
+- `q = 2` is the participation ratio / IPR and is more aggressive;
+- `q < 1` is more conservative because it reacts more strongly to small Schmidt
+  values;
+- larger `alpha` is more conservative because it explicitly protects long
+  tails;
+- `alpha = 0` disables the tail-amplification factor.
+
+The default `q = 1.0, alpha = 0.1` is chosen as a mild, fidelity-oriented
+setting. It keeps the entropy-rank baseline while only slightly enlarging the
+recommended bond dimension when the Schmidt spectrum develops a broad tail.
 
 The high-level wrapper accepts the same gate list together with the adaptive
 policy:
@@ -55,10 +108,6 @@ evolve!(psi, gates, 10; chi_policy=:adaptive, maxdim=16)
 
 maximum(length.(psi.λ))
 ```
-
-The default `q = 1.5` interpolates between entropy rank (`q -> 1`) and the
-participation ratio (`q = 2`). Larger `alpha` makes the score more sensitive to
-long Schmidt tails.
 
 ## Imaginary-Time AKLT Example
 

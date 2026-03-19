@@ -4,9 +4,21 @@
 """
     tensor_lmul!(λ, Γ)
 
-Contraction of:
-       |
-  --λ--Γ--
+Multiply a tensor by a diagonal matrix built from `λ` on its leftmost bond.
+
+Parameters:
+- `λ`
+  Vector of coefficients to apply on the leftmost virtual leg.
+- `Γ`
+  Tensor whose first dimension must have length `length(λ)`.
+
+Returns:
+- The mutated tensor `Γ`.
+
+Notes:
+- This is an in-place helper used throughout the package.
+- The tensor is reshaped internally into matrix form, multiplied, and then left
+  in its original array storage.
 """
 function tensor_lmul!(λ::AbstractVector{<:Number}, Γ::AbstractArray)
     α = size(Γ, 1)
@@ -17,9 +29,20 @@ end
 """
     tensor_rmul!(Γ, λ)
 
-Contraction of:
-    |
-  --Γ--λ--
+Multiply a tensor by a diagonal matrix built from `λ` on its rightmost bond.
+
+Parameters:
+- `Γ`
+  Tensor whose last dimension must have length `length(λ)`.
+- `λ`
+  Vector of coefficients to apply on the rightmost virtual leg.
+
+Returns:
+- The mutated tensor `Γ`.
+
+Notes:
+- This is the right-bond companion of [`tensor_lmul!`](@ref).
+- The operation is in place.
 """
 function tensor_rmul!(Γ::AbstractArray, λ::AbstractVector{<:Number})
     β = size(Γ)[end]
@@ -30,11 +53,21 @@ end
 """
     tensor_umul(umat, Γ) 
 
-Contraction of:
-    |
-    U
-    |
-  --Γ--
+Apply a dense operator `umat` to the physical leg of a local three-leg tensor.
+
+Parameters:
+- `umat`
+  Dense operator acting on the physical Hilbert space.
+- `Γ`
+  Local tensor with shape `(Dl, d, Dr)`, where the second index is the physical
+  leg acted on by `umat`.
+
+Returns:
+- A new tensor with the same shape as `Γ`.
+
+Notes:
+- This is not in-place.
+- The matrix dimension of `umat` must match the physical dimension `d`.
 """
 function tensor_umul(umat::AbstractMatrix, Γ::AbstractArray{<:Number, 3})
     @tensor Γ_new[:] := umat[-2,1] * Γ[-1,1,-3]
@@ -47,9 +80,17 @@ end
 """
     tensor_group_2(ΓA, ΓB) 
 
-Contraction: 
-    |  |           |
-  --Γ--Γ--  ==>  --Γs--
+Group two neighboring local tensors into a single three-leg block tensor.
+
+Parameters:
+- `ΓA`, `ΓB`
+  Neighboring local tensors with matching internal bond dimensions.
+
+Returns:
+- A grouped tensor with shape `(Dl, dA * dB, Dr)`.
+
+Notes:
+- The two physical dimensions are fused into a single composite physical leg.
 """
 function tensor_group_2(ΓA::AbstractArray{<:Number, 3}, ΓB::AbstractArray{<:Number, 3})
     α, d1, χ = size(ΓA)
@@ -62,9 +103,15 @@ end
 """
     tensor_group_3(ΓA, ΓB, ΓC) 
 
-Contraction: 
-    |  |  |           |
-  --Γ--Γ--Γ--  ==>  --Γs--
+Group three neighboring local tensors into one three-leg block tensor.
+
+Parameters:
+- `ΓA`, `ΓB`, `ΓC`
+  Consecutive local tensors with compatible internal bond dimensions.
+
+Returns:
+- A grouped tensor whose physical leg is the product of the three local
+  physical dimensions.
 """
 function tensor_group_3(ΓA::AbstractArray, ΓB::AbstractArray, ΓC::AbstractArray)
     α, β = size(ΓA, 1), size(ΓC, 3)
@@ -77,9 +124,21 @@ end
 """
     tensor_group(Γs) 
 
-Contraction:
-    |  |   ...   |           |
-  --Γ--Γ-- ... --Γ--  ==>  --Γs--
+Group a contiguous list of local tensors into a single three-leg block tensor.
+
+Parameters:
+- `Γs`
+  Vector of local three-leg tensors with compatible neighboring bond
+  dimensions.
+
+Returns:
+- A grouped tensor with the same left and right bond dimensions as the first and
+  last tensors, and with a fused physical leg.
+
+Notes:
+- This is the basic grouping primitive used before block SVDs and gate
+  application.
+- For `length(Γs) == 1`, a copy of the input tensor is returned.
 """
 function tensor_group(Γs::AbstractVector{<:AbstractArray{<:Number, 3}})
     tensor = Γs[1]
@@ -99,14 +158,29 @@ end
 """
     svd_trim(mat; maxdim, cutoff, renormalize)
 
-SVD with compression.
+Compute an SVD of `mat` and truncate the spectrum.
 
 Parameters:
------------
-- mat        : matrix 
-- maxdim     : the maximum number of singular values to keep
-- cutoff     : set the desired truncation error of the SVD
-- renormalize: renormalize the singular values
+- `mat`
+  Dense matrix to decompose.
+
+Keyword arguments:
+- `maxdim`
+  Maximum number of singular values to keep.
+- `cutoff`
+  Singular-value threshold. Singular values below this threshold are discarded.
+- `renormalize`
+  If `true`, renormalize the retained singular values after truncation.
+
+Returns:
+- `(U, S, V)` where `U * Diagonal(S) * V` is the truncated decomposition.
+
+Notes:
+- The routine first tries Julia's default `svd`.
+- If LAPACK throws an exception, a small diagonal perturbation is added and the
+  decomposition is retried with divide-and-conquer.
+- The truncation rule is "keep values until hitting either `cutoff` or
+  `maxdim`".
 """
 function svd_trim(
     mat::AbstractMatrix;
@@ -153,16 +227,25 @@ end
 """
     tensor_svd(T; maxdim, curoff, renormalize)
 
-Tensor SVD with compression:
-    |   |           |     |
-  --BLOCK--  ==>  --U--S--V--
+Perform an SVD of a four-leg block tensor by fusing its left and right halves.
 
 Parameters:
------------
-- T          : 4-leg tensor
-- maxdim     : the maximum number of singular values to keep
-- cutoff     : set the desired truncation error of the SVD
-- renormalize: renormalize the singular values
+- `T`
+  Four-leg tensor with shape `(Dl, d1, d2, Dr)`.
+
+Keyword arguments:
+- `maxdim`, `cutoff`, `renormalize`
+  Passed through to [`svd_trim`](@ref).
+
+Returns:
+- `(U, S, V)` where:
+  `U` has shape `(Dl, d1, χ)`,
+  `S` is the retained singular-value vector,
+  `V` has shape `(χ, d2, Dr)`.
+
+Notes:
+- This is the core two-site decomposition primitive used after local gate
+  application.
 """
 function tensor_svd(
     T::AbstractArray{<:Number, 4};
@@ -179,14 +262,29 @@ end
 """
     tensor_decomp!(Γ, λl, n; maxdim, cutoff, renormalize)
 
-Multiple decomposition:
-    |              |   |        |
-  --Γ--  ==> --λl--Γ₁--Γ₂-- ⋯ --Γₙ--
-where:
-    |          |
-  --Γₙ--  =  --Aₙ--λₙ--
+Decompose a grouped block tensor back into `n` site-local stored tensors.
 
-Return list tensor list [Γ₁,⋯,Γₙ], and values list [λ₁,⋯,λₙ₋₁].
+Parameters:
+- `Γ`
+  Grouped three-leg tensor representing `n` consecutive sites.
+- `λl`
+  Schmidt values on the left bond entering that block.
+- `n`
+  Number of sites into which the grouped tensor should be decomposed.
+
+Keyword arguments:
+- `maxdim`, `cutoff`, `renormalize`
+  Truncation and normalization controls forwarded to the internal SVD steps.
+
+Returns:
+- `(Γs, λs)` where `Γs` is a vector of `n` stored local tensors and `λs` is the
+  vector of Schmidt spectra on the `n - 1` internal bonds.
+
+Notes:
+- The local physical dimension is inferred by assuming the fused physical leg of
+  `Γ` has size `d^n`.
+- The returned local tensors follow the package storage convention with absorbed
+  right Schmidt values.
 """
 function tensor_decomp!(
     Γ::AbstractArray{<:Number, 3},
@@ -227,10 +325,18 @@ end
 """
     gtrm(T1, T2)
 
-General transfer matrix:
-  2 ---Ā--- 4
-       |
-  1 ---B--- 3
+Build the mixed transfer matrix between two local tensors.
+
+Parameters:
+- `T1`, `T2`
+  Local three-leg tensors with compatible physical dimensions.
+
+Returns:
+- Dense matrix representation of the mixed transfer operator.
+
+Notes:
+- `gtrm(T, T)` is the ordinary transfer matrix of `T`.
+- This matrix is used in overlap and fixed-point computations.
 """
 function gtrm(T1::AbstractArray{<:Number, 3}, T2::AbstractArray{<:Number, 3})
     i1, _, k1 = size(T2)
@@ -245,10 +351,15 @@ end
 """
     gtrm(T1s, T2s)
 
-General transfer matrix:
-  2 ---Ā₁---Ā₂- ⋯ -Āₙ--- 4
-       |    |      |
-  1 ---B₁---B₂- ⋯ -Bₙ--- 3
+Build the mixed transfer matrix for two full unit cells.
+
+Parameters:
+- `T1s`, `T2s`
+  Vectors of local tensors representing two unit cells of the same length.
+
+Returns:
+- Dense matrix representation of the mixed transfer operator for the full unit
+  cell.
 """
 function gtrm(
     T1s::AbstractVector{<:AbstractArray{<:Number, 3}},
@@ -266,6 +377,8 @@ end
     trm(T::AbstractArray{<:Number, 3})
 
 Transfer matrix for MPS tensor `T`.
+
+This is shorthand for `gtrm(T, T)`.
 """
 function trm(T::AbstractArray{<:Number, 3}) 
     gtrm(T, T)
@@ -274,12 +387,17 @@ end
 """
     otrm(T1::AbstractArray, O::AbstractMatrix, T2::AbstractArray)
 
-Operator transfer matrix
-  2 ---Ā--- 4
-       |
-       O
-       |
-  1 ---B--- 3
+Build the operator transfer matrix between two local tensors with a local
+operator inserted on the physical leg.
+
+Parameters:
+- `T1`, `T2`
+  Local three-leg tensors.
+- `O`
+  Dense one-site operator acting on the physical leg.
+
+Returns:
+- Dense matrix representation of the resulting operator transfer matrix.
 """
 function otrm(
     T1::AbstractArray{<:Number, 3},
@@ -298,12 +416,18 @@ end
 """
     otrm(T1s::AbstractVector, O::AbstractMatrix, T2s::AbstractVector)
 
-Operator transfer matrix
-  2 ---Ā₁---Ā₂- ⋯ -Āₙ--- 4
-       |    |      |
-       O    O   ⋯  O 
-       |    |      |
-  1 ---B₁---B₂- ⋯ -Bₙ--- 3
+Build an operator transfer matrix for a full unit cell with the same local
+operator inserted on every site.
+
+Parameters:
+- `T1s`, `T2s`
+  Vectors of local tensors.
+- `O`
+  One-site operator inserted at each site.
+
+Returns:
+- Dense matrix representation of the operator transfer matrix for the full unit
+  cell.
 """
 function otrm(
     T1s::AbstractVector{<:AbstractArray{<:Number, 3}},
@@ -321,12 +445,18 @@ end
 """
     otrm(T1s::AbstractVector, Os::AbstractVector, T2s::AbstractVector)
 
-Operator transfer matrix
-  2 ---Ā₁---Ā₂- ⋯ -Āₙ--- 4
-       |    |      |
-       O₁   O₂  ⋯  Oₙ
-       |    |      |
-  1 ---B₁---B₂- ⋯ -Bₙ--- 3
+Build an operator transfer matrix for a full unit cell with site-dependent
+operators.
+
+Parameters:
+- `T1s`, `T2s`
+  Vectors of local tensors.
+- `Os`
+  Vector of one-site operators, one for each site.
+
+Returns:
+- Dense matrix representation of the operator transfer matrix for the full unit
+  cell.
 """
 function otrm(
     T1s::AbstractVector{<:AbstractArray{<:Number, 3}},
@@ -344,8 +474,23 @@ end
 #---------------------------------------------------------------------------------------------------
 # Normalization
 #---------------------------------------------------------------------------------------------------
+"""
+    tensor_renormalize!(Γ)
+
+Normalize a local tensor using the square root of its self-overlap.
+
+Parameters:
+- `Γ`
+  Local three-leg tensor to normalize in place.
+
+Returns:
+- The mutated tensor `Γ`.
+
+Notes:
+- This helper uses [`inner_product`](@ref) on the single-tensor transfer matrix.
+- It is primarily useful for low-level normalization workflows.
+"""
 function tensor_renormalize!(Γ::Array{<:Number, 3})
     Γ_norm = sqrt(inner_product(Γ))
     Γ ./= Γ_norm
 end
-
