@@ -21,6 +21,54 @@ evolve!(ψ, gates, steps; chi_policy=:fixed, maxdim=MAXDIM, ...)
 
 where each element of `gates` is a tuple `(G, i, j)`.
 
+## Hamiltonian Layers And Trotter Order
+
+If you have a Hamiltonian split into commuting layers, you can ask the package
+to build the Trotter gates for you:
+
+```julia
+evolve!(ψ, layers, dt, steps; trotter=:second, evolution=:real, ...)
+```
+
+Each `layers[k]` is a vector of local Hamiltonian terms `(h, i, j)`. Terms
+inside one layer are assumed to commute, and they are applied in the supplied
+order. The helper
+
+```julia
+trotter_gates(layers, dt; trotter=:second, evolution=:real)
+```
+
+materializes one macro-step as an explicit gate list if you want to inspect or
+reuse it directly.
+
+For real-time evolution, the layered interface currently supports:
+
+- `trotter=:second` for Strang splitting on any number of layers,
+- `trotter=:fourth` for Suzuki's recursive fourth-order composition on any
+  number of layers,
+- `trotter=:fourth_opt` for the optimized Barthel-Zhang fourth-order formula on
+  exactly two layers.
+
+The fourth-order schemes intentionally remain real-time-only in v1. Both
+`trotter=:fourth` and `trotter=:fourth_opt` contain negative substeps, so
+`evolution=:imaginary` is currently supported only with `trotter=:second`.
+
+```@example
+using iTEBD
+using LinearAlgebra
+
+X = [0 1; 1 0]
+Z = [1 0; 0 -1]
+H = kron(X, X) + 0.2 * kron(Z, Z)
+
+layers = [[(H, 1, 2)], [(H, 2, 1)]]
+psi = product_iMPS(ComplexF64, [[1, 0], [0, 1]])
+
+evolve!(psi, layers, 0.1, 5; trotter=:fourth, maxdim=8)
+
+length(trotter_gates(layers, 0.1; trotter=:fourth_opt))
+```
+
 ## Adaptive Bond Dimension
 
 For adaptive real- or imaginary-time evolution, `iTEBD.jl` provides two helper
