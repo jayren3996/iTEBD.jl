@@ -40,3 +40,29 @@ end
     @test_throws ArgumentError adaptive_bonddim(1, spectrum; mindim=0)
     @test_throws ArgumentError adaptive_bonddim(1, spectrum; mindim=3, maxdim=2)
 end
+
+@testset "ADAPTIVE_BONDDIM_RATCHE" begin
+    spectrum = [sqrt(0.6), sqrt(0.25), sqrt(0.15)]
+
+    # With ratchet=true (default), bond dimension never decreases
+    @test adaptive_bonddim(5, spectrum; maxdim=10) == 5
+
+    # With ratchet=false, bond dimension can decrease
+    χ = adaptive_bonddim(5, spectrum; maxdim=10, ratchet=false)
+    @test χ < 5
+end
+
+@testset "NATURAL_BONDDIM_EXTREME_Q" begin
+    # Extreme q values should not overflow/underflow
+    spectrum = [sqrt(0.5), sqrt(0.5)]
+    @test isfinite(natural_bonddim(spectrum; q=1e6))
+    @test isfinite(natural_bonddim(spectrum; q=1e-6))
+end
+
+@testset "ENTANGLEMENT_ENTROPY_NORMALIZES" begin
+    # Unnormalized input should be normalized before cutoff
+    S = [0.5, 0.5, 1e-11]
+    # After normalization, 1e-11 becomes ~2e-11, which is below cutoff=1e-10
+    # So it should be dropped, giving entropy of log(2)
+    @test iTEBD.entanglement_entropy(S; cutoff=1e-10) ≈ log(2) atol=1e-8
+end
