@@ -74,6 +74,31 @@ function tensor_umul(umat::AbstractMatrix, Γ::AbstractArray{<:Number, 3})
     Γ_new
 end
 
+"""
+    tensor_umul!(umat, Γ)
+
+Apply a dense operator `umat` to the physical leg of a local three-leg tensor
+in place.
+
+Parameters:
+- `umat`
+  Dense operator acting on the physical Hilbert space.
+- `Γ`
+  Local tensor with shape `(Dl, d, Dr)`, which is mutated in place.
+
+Returns:
+- The mutated tensor `Γ`.
+
+Notes:
+- This uses a pre-allocated temporary buffer and copies the result back into
+  `Γ`, avoiding replacement of the array reference in the parent `iMPS`.
+"""
+function tensor_umul!(umat::AbstractMatrix, Γ::AbstractArray{<:Number, 3})
+    @tensor tmp[:] := umat[-2,1] * Γ[-1,1,-3]
+    Γ .= tmp
+    return Γ
+end
+
 #---------------------------------------------------------------------------------------------------
 # Tensor Grouping
 #---------------------------------------------------------------------------------------------------

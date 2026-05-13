@@ -159,3 +159,61 @@ end
     @test_throws ArgumentError evolve!(psi, layers3, 0.1, 1; trotter=:fourth_opt)
     @test_throws ArgumentError evolve!(psi, layers2, 0.1, 1; trotter=:fourth_opt, evolution=:imaginary)
 end
+
+@testset "ADAPTIVE_POLICY_VALID_STATE" begin
+    X = [0.0 1.0; 1.0 0.0]
+    H = kron(X, X)
+    G = exp(-0.1im * H)
+    gates = [(G, 1, 2), (G, 2, 1)]
+
+    psi = product_iMPS(ComplexF64, [[1, 0], [0, 1]])
+    evolve!(psi, gates, 2; chi_policy=:adaptive, maxdim=4)
+
+    @test all(λ -> all(λ .>= 0), psi.λ)
+    @test all(λ -> isapprox(norm(λ), 1.0; atol=1e-8), psi.λ)
+    @test all(Γ -> size(Γ, 1) == size(Γ, 3), psi.Γ)
+end
+
+@testset "GATE_FUSION_SAME_BOND" begin
+    X = [0.0 1.0; 1.0 0.0]
+    G1 = kron(X, I(2))
+    G2 = kron(I(2), X)
+    G_fused = G2 * G1
+
+    psi_seq = product_iMPS(ComplexF64, [[1, 0], [0, 1]])
+    psi_fused = product_iMPS(ComplexF64, [[1, 0], [0, 1]])
+
+    applygate!(psi_seq, G1, 1, 2; maxdim=4)
+    applygate!(psi_seq, G2, 1, 2; maxdim=4)
+    applygate!(psi_fused, G_fused, 1, 2; maxdim=4)
+
+    @test psi_seq.λ[1] ≈ psi_fused.λ[1] atol=1e-12
+    @test psi_seq.λ[2] ≈ psi_fused.λ[2] atol=1e-12
+    @test psi_seq.Γ[1] ≈ psi_fused.Γ[1] atol=1e-12
+    @test psi_seq.Γ[2] ≈ psi_fused.Γ[2] atol=1e-12
+end
+
+@testset "GATE_FUSION_EVOLVE" begin
+    X = [0.0 1.0; 1.0 0.0]
+    G1 = kron(X, I(2))
+    G2 = kron(I(2), X)
+
+    psi_seq = product_iMPS(ComplexF64, [[1, 0], [0, 1]])
+    psi_evolve = product_iMPS(ComplexF64, [[1, 0], [0, 1]])
+
+    evolve!(psi_seq, [(G1, 1, 2), (G2, 1, 2)], 1; maxdim=4)
+    evolve!(psi_evolve, [(G1, 1, 2), (G2, 1, 2)], 1; maxdim=4)
+
+    @test psi_seq.λ[1] ≈ psi_evolve.λ[1] atol=1e-12
+    @test psi_seq.λ[2] ≈ psi_evolve.λ[2] atol=1e-12
+end
+
+@testset "TROTTER_GATES_TYPED" begin
+    X = ComplexF64[0 1; 1 0]
+    layers = [[(X, 1, 1)], [(X, 1, 1)]]
+    gates = trotter_gates(layers, 0.1; trotter=:second)
+
+    @test gates isa Vector
+    @test eltype(gates) <: Tuple{AbstractMatrix, Int, Int}
+    @test eltype(first(gates)[1]) <: ComplexF64
+end

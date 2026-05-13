@@ -105,6 +105,7 @@ end
 
 include("test_imps_canonical_api.jl")
 include("test_adaptive_bonddim.jl")
+include("test_gate_api.jl")
 include("test_evolve_api.jl")
 include("test_scarfinder_nstep.jl")
 include("test_docs_smoke.jl")
