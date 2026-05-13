@@ -24,9 +24,17 @@ Parameters:
 
 Keyword arguments:
 - `maxdim=MAXDIM`
-  Maximum bond dimension retained during the decomposition of the updated block.
-- `cutoff=SVDTOL`
-  Singular-value cutoff used during that decomposition.
+  Hard cap on the retained bond dimension during the decomposition of the
+  updated block.
+- `mindim=1`
+  Minimum retained bond dimension on each updated internal bond.
+- `truncerr=0.0`
+  Target discarded weight used to choose the smallest admissible kept bond
+  dimension on each updated internal bond. Set `truncerr = 0` for fixed-cap
+  evolution.
+- `svd_min=SVDTOL`
+  Optional absolute singular-value floor applied after the discarded-weight
+  target is evaluated.
 - `renormalize=false`
   Whether to renormalize Schmidt values produced by the decomposition.
 
@@ -43,19 +51,39 @@ Notes:
 function tensor_applygate!(
     G::AbstractMatrix{<:Number}, Γs::AbstractVector{<:AbstractArray{<:Number, 3}},
     λl::AbstractVector{<:Number};
-    maxdim=MAXDIM, cutoff=SVDTOL, renormalize=false
+    maxdim::Integer=MAXDIM,
+    mindim::Integer=1,
+    truncerr::Real=0.0,
+    svd_min::Real=SVDTOL,
+    cutoff::Union{Nothing,Real}=nothing,
+    renormalize::Bool=false,
+    return_stats::Bool=false,
+    bond_indices::Union{Nothing,AbstractVector{<:Integer}}=nothing
 )
+    svd_floor = _resolve_svd_min(svd_min, cutoff)
+    _validate_truncation_args(maxdim, mindim, truncerr, svd_floor)
     n = length(Γs)
-    isone(n) && return ([GΓ], [])
+    isone(n) && return return_stats ? ([tensor_umul(G, Γs[1])], Vector{Vector{eltype(λl)}}(), Any[]) : ([tensor_umul(G, Γs[1])], Vector{Vector{eltype(λl)}}())
     Γ = tensor_group(Γs)
     tensor_lmul!(λl, Γ)
     GΓ = tensor_umul(G, Γ)
-    tensor_decomp!(GΓ, λl, n; maxdim, cutoff, renormalize)
+    tensor_decomp!(
+        GΓ,
+        λl,
+        n;
+        maxdim,
+        mindim,
+        truncerr,
+        svd_min=svd_floor,
+        renormalize,
+        return_stats,
+        bond_indices,
+    )
 end
 #---------------------------------------------------------------------------------------------------
 export applygate!
 """
-    applygate!(ψ, G, i, j; maxdim=MAXDIM, cutoff=SVDTOL, renormalize=true)
+    applygate!(ψ, G, i, j; maxdim=MAXDIM, mindim=1, truncerr=0.0, svd_min=SVDTOL, renormalize=true, return_stats=false)
 
 Apply a local gate `G` in place to the contiguous region from site `i` to site
 `j` of the periodic unit cell.
@@ -72,14 +100,26 @@ Parameters:
 
 Keyword arguments:
 - `maxdim=MAXDIM`
-  Maximum temporary bond dimension used when decomposing the updated block.
-- `cutoff=SVDTOL`
-  Singular-value cutoff used during that decomposition.
+  Hard cap on the retained bond dimension during the decomposition of the
+  updated block.
+- `mindim=1`
+  Minimum retained bond dimension on each updated internal bond.
+- `truncerr=0.0`
+  Target discarded weight used to choose the smallest admissible kept bond
+  dimension on each updated internal bond. Set `truncerr = 0` for fixed-cap
+  evolution.
+- `svd_min=SVDTOL`
+  Optional absolute singular-value floor applied after the discarded-weight
+  target is evaluated.
 - `renormalize=true`
   Whether to renormalize the retained Schmidt values.
+- `return_stats=false`
+  If `true`, also return per-bond truncation diagnostics for this gate update.
 
 Returns:
-- The same object `ψ`, mutated in place.
+- `ψ` when `return_stats = false`.
+- `(ψ, stats)` when `return_stats = true`, where `stats.bond_stats` contains one
+  entry per updated internal bond.
 
 Notes:
 - For a one-site update with `i == j`, the operator is applied directly to the
@@ -98,23 +138,62 @@ applygate!(psi, kron(X, X), 1, 2; maxdim=4)
 function applygate!(
     ψ::iMPS, G::AbstractMatrix,
     i::Integer, j::Integer;
-    maxdim::Integer=MAXDIM, 
-    cutoff::Real=SVDTOL, 
-    renormalize::Bool=true
+    maxdim::Integer=MAXDIM,
+    mindim::Integer=1,
+    truncerr::Real=0.0,
+    svd_min::Real=SVDTOL,
+    cutoff::Union{Nothing,Real}=nothing,
+    renormalize::Bool=true,
+    return_stats::Bool=false
 )
+    svd_floor = _resolve_svd_min(svd_min, cutoff)
+    _validate_truncation_args(maxdim, mindim, truncerr, svd_floor)
     if isequal(i, j)
         tensor_umul!(G, ψ.Γ[i])
+        if return_stats
+            return ψ, (
+                support=(i, j),
+                bond_stats=Any[],
+                max_discarded_weight=0.0,
+                num_saturated=0,
+            )
+        end
         return ψ
     end
-    inds = j>i ? collect(i:j) : [i:ψ.n; 1:j]
+    inds = _gate_indices(ψ, i, j)
     Γs = ψ.Γ[inds]
     λl = ψ.λ[mod(i-2,ψ.n)+1]
-    Γs, λs = tensor_applygate!(G, Γs, λl; maxdim, cutoff, renormalize)
+    if return_stats
+        Γs, λs, bond_stats = tensor_applygate!(
+            G,
+            Γs,
+            λl;
+            maxdim,
+            mindim,
+            truncerr,
+            svd_min=svd_floor,
+            renormalize,
+            return_stats=true,
+            bond_indices=inds[1:end-1],
+        )
+    else
+        Γs, λs = tensor_applygate!(
+            G,
+            Γs,
+            λl;
+            maxdim,
+            mindim,
+            truncerr,
+            svd_min=svd_floor,
+            renormalize,
+        )
+    end
     push!(λs, ψ.λ[j])
     for i in eachindex(inds) 
         ψ.Γ[inds[i]] = Γs[i]
         ψ.λ[inds[i]] = λs[i]
     end
+    return_stats && return ψ, _gate_update_stats(i, j, bond_stats)
     return ψ
 end
 
@@ -140,12 +219,78 @@ const _BARTHEL_B1 = 0.42652466131587616
 const _BARTHEL_B2 = -0.12039526945509727
 const _BARTHEL_B3 = 1 - 2 * (_BARTHEL_B1 + _BARTHEL_B2)
 
-function _validate_evolve_args(steps::Integer, maxdim::Integer, mindim::Integer)
-    steps >= 0 || throw(ArgumentError("steps must be non-negative"))
+function _validate_truncation_args(
+    maxdim::Integer,
+    mindim::Integer,
+    truncerr::Real,
+    svd_min::Real
+)
     maxdim > 0 || throw(ArgumentError("maxdim must be positive"))
     mindim > 0 || throw(ArgumentError("mindim must be positive"))
     maxdim >= mindim || throw(ArgumentError("maxdim must be at least mindim"))
+    isfinite(truncerr) && truncerr >= 0 || throw(ArgumentError("truncerr must be finite and non-negative"))
+    isfinite(svd_min) && svd_min >= 0 || throw(ArgumentError("svd_min must be finite and non-negative"))
     return nothing
+end
+
+function _resolve_svd_min(svd_min::Real, cutoff::Union{Nothing,Real})
+    if isnothing(cutoff)
+        return svd_min
+    end
+    isfinite(cutoff) && cutoff >= 0 ||
+        throw(ArgumentError("cutoff must be finite and non-negative"))
+    svd_min == SVDTOL ||
+        throw(ArgumentError("cutoff and svd_min are aliases; pass only one"))
+    return cutoff
+end
+
+function _validate_chi_policy(chi_policy::Symbol)
+    chi_policy in (:fixed, :adaptive) ||
+        throw(ArgumentError("chi_policy must be one of :fixed or :adaptive"))
+    return nothing
+end
+
+function _validate_evolve_args(
+    steps::Integer,
+    maxdim::Integer,
+    mindim::Integer,
+    truncerr::Real,
+    svd_min::Real
+)
+    steps >= 0 || throw(ArgumentError("steps must be non-negative"))
+    _validate_truncation_args(maxdim, mindim, truncerr, svd_min)
+    return nothing
+end
+
+function _gate_update_stats(i::Integer, j::Integer, bond_stats)
+    max_discarded_weight = isempty(bond_stats) ? 0.0 : maximum(stat.discarded_weight for stat in bond_stats)
+    num_saturated = count(stat -> stat.saturated, bond_stats)
+    (
+        support=(i, j),
+        bond_stats=bond_stats,
+        max_discarded_weight=max_discarded_weight,
+        num_saturated=num_saturated,
+    )
+end
+
+function _aggregate_evolution_stats(gate_updates)
+    bond_stats = Any[]
+    for update in gate_updates
+        append!(bond_stats, update.bond_stats)
+    end
+
+    max_discarded_weight = isempty(bond_stats) ? 0.0 : maximum(stat.discarded_weight for stat in bond_stats)
+    mean_discarded_weight = isempty(bond_stats) ? 0.0 : sum(stat.discarded_weight for stat in bond_stats) / length(bond_stats)
+    max_kept_dim = isempty(bond_stats) ? 0 : maximum(stat.chi_keep for stat in bond_stats)
+    num_saturated = count(stat -> stat.saturated, bond_stats)
+
+    (
+        gate_updates=gate_updates,
+        max_discarded_weight=max_discarded_weight,
+        mean_discarded_weight=mean_discarded_weight,
+        max_kept_dim=max_kept_dim,
+        num_saturated=num_saturated,
+    )
 end
 
 function _validate_trotter_scheme(num_layers::Integer, trotter::Symbol)
@@ -267,12 +412,8 @@ function _materialize_trotter_gates(
     stages::AbstractVector{<:Tuple{Int, <:Real}};
     evolution::Symbol=:real
 )
-    # Infer the concrete gate matrix type from the first layer term.
-    h0, _, _ = first(layers[first(stages)[1]])
-    T = typeof(exp(_trotter_time_prefactor(dt, 1.0, evolution) * h0))
-
-    cache = Dict{Tuple{Int, Int, Float64}, T}()
-    gates = Tuple{T, Int, Int}[]
+    cache = Dict{Tuple{Int, Int, Float64}, Any}()
+    gates = Tuple{Any, Int, Int}[]
 
     for (layer_idx, coeff) in stages
         for (term_idx, term) in enumerate(layers[layer_idx])
@@ -290,13 +431,14 @@ end
 
 function _fuse_consecutive_gates(gates)
     isempty(gates) && return gates
-    fused = [first(gates)]
-    for (G, i, j) in gates[2:end]
+    fused = [gates[1]]
+    for k in 2:length(gates)
         G_prev, i_prev, j_prev = fused[end]
-        if i == i_prev && j == j_prev
-            fused[end] = (G * G_prev, i, j)
+        G_curr, i_curr, j_curr = gates[k]
+        if i_curr == i_prev && j_curr == j_prev
+            fused[end] = (G_curr * G_prev, i_prev, j_prev)
         else
-            push!(fused, (G, i, j))
+            push!(fused, gates[k])
         end
     end
     return fused
@@ -304,30 +446,60 @@ end
 
 function _evolve_gate_sequence!(
     ψ::iMPS,
-    gates,
-    χ::Integer;
-    chi_policy::Symbol=:fixed,
+    gates;
     maxdim::Integer=MAXDIM,
     mindim::Integer=1,
+    truncerr::Real=0.0,
+    svd_min::Real=SVDTOL,
+    cutoff::Union{Nothing,Real}=nothing,
+    renormalize::Bool=true,
+    return_stats::Bool=false,
+    chi_policy::Symbol=:fixed,
     q::Real=1.0,
-    alpha::Real=0.1,
-    cutoff::Real=SVDTOL,
-    renormalize::Bool=true
+    alpha::Real=0.1
 )
     gates = _fuse_consecutive_gates(gates)
+    svd_floor = _resolve_svd_min(svd_min, cutoff)
+    _validate_chi_policy(chi_policy)
+    gate_updates = return_stats ? Any[] : nothing
+    χ = min(maxdim, max(mindim, maximum(length, ψ.λ; init=mindim)))
     for gate in gates
         G, i, j = gate
-        applygate!(ψ, G, i, j; maxdim, cutoff, renormalize)
+        if return_stats
+            _, stats = applygate!(
+                ψ,
+                G,
+                i,
+                j;
+                maxdim,
+                mindim,
+                truncerr,
+                svd_min=svd_floor,
+                renormalize,
+                return_stats=true,
+            )
+            push!(gate_updates, stats)
+        else
+            applygate!(ψ, G, i, j; maxdim, mindim, truncerr, svd_min=svd_floor, renormalize)
+        end
+
         if chi_policy === :adaptive
-            for k in _gate_indices(ψ, i, j)
-                χ = adaptive_bonddim(χ, ψ.λ[k]; mindim, maxdim, q, alpha, cutoff)
+            for bond in _gate_indices(ψ, i, j)
+                χ = adaptive_bonddim(
+                    χ,
+                    ψ.λ[bond];
+                    mindim,
+                    maxdim,
+                    q,
+                    alpha,
+                    cutoff=svd_floor,
+                )
             end
-        elseif chi_policy !== :fixed
-            throw(ArgumentError("unknown chi_policy $(repr(chi_policy)); use :fixed or :adaptive"))
+            canonical!(ψ; maxdim=χ, cutoff=svd_floor, renormalize)
         end
     end
 
-    return χ
+    return gate_updates
 end
 
 export trotter_gates
@@ -390,7 +562,7 @@ end
 
 export evolve!
 """
-    evolve!(ψ, gates, steps; chi_policy=:fixed, maxdim=MAXDIM, mindim=1, q=1.0, alpha=0.1, cutoff=SVDTOL, renormalize=true)
+    evolve!(ψ, gates, steps; maxdim=MAXDIM, mindim=1, truncerr=0.0, svd_min=SVDTOL, renormalize=true, return_stats=false)
 
 Apply a sequence of local gates repeatedly for `steps` sweeps.
 
@@ -407,35 +579,32 @@ Parameters:
   Number of full sweeps through the gate list.
 
 Keyword arguments:
-- `chi_policy=:fixed`
-  Bond-dimension policy. Use `:fixed` for standard fixed-`maxdim` evolution or
-  `:adaptive` to ratchet the bond dimension with [`adaptive_bonddim`](@ref).
 - `maxdim=MAXDIM`
-  Maximum temporary bond dimension used during gate application. In adaptive
-  mode this is also the hard upper cap.
+  Hard cap on the retained bond dimension during each local update.
 - `mindim=1`
-  Minimum bond dimension allowed in adaptive mode.
-- `q=1.0`, `alpha=0.1`
-  Parameters passed to [`adaptive_bonddim`](@ref) in adaptive mode.
-- `cutoff=SVDTOL`
-  Singular-value cutoff used during gate application and any subsequent
-  canonicalization.
+  Minimum retained bond dimension on each updated internal bond.
+- `truncerr=0.0`
+  Target discarded weight used to choose the smallest admissible kept bond
+  dimension on each updated internal bond. Set `truncerr = 0` for fixed-cap
+  evolution.
+- `svd_min=SVDTOL`
+  Optional absolute singular-value floor applied after the discarded-weight
+  target is evaluated.
 - `renormalize=true`
-  Whether to renormalize Schmidt values after decomposition and canonicalization.
+  Whether to renormalize Schmidt values after decomposition.
+- `return_stats=false`
+  If `true`, also return aggregated truncation diagnostics for the full
+  evolution.
 
 Returns:
-- The same object `ψ`, mutated in place.
-
-Behavior:
-- With `chi_policy = :fixed`, each update is applied with the supplied
-  `maxdim`.
-- With `chi_policy = :adaptive`, each update is first applied up to `maxdim`,
-  then the state is compressed back to a non-decreasing bond dimension chosen
-  from the updated Schmidt spectra.
+- `ψ` when `return_stats = false`.
+- `(ψ, stats)` when `return_stats = true`.
 
 Notes:
-- Adaptive mode is intentionally conservative: it probes with the larger working
-  dimension `maxdim`, then projects back down to the ratcheted `χ`.
+- `truncerr = 0` reproduces the standard fixed-cap behavior with `maxdim` as the
+  hard cap.
+- `truncerr > 0` enables standard local SVD truncation control based on the
+  discarded weight of the post-gate singular values.
 - The `gates` argument is kept explicit rather than hiding the sweep pattern in
   a higher-level model object.
 
@@ -444,56 +613,59 @@ Example:
 X = [0 1; 1 0]
 psi = product_iMPS(ComplexF64, [[1, 0], [0, 1]])
 gates = [(kron(X, X), 1, 2), (kron(X, X), 2, 1)]
-evolve!(psi, gates, 5; chi_policy=:fixed, maxdim=4)
+evolve!(psi, gates, 5; maxdim=4)
 ```
 """
 function evolve!(
     ψ::iMPS,
     gates,
     steps::Integer;
-    chi_policy::Symbol=:fixed,
     maxdim::Integer=MAXDIM,
     mindim::Integer=1,
+    truncerr::Real=0.0,
+    svd_min::Real=SVDTOL,
+    cutoff::Union{Nothing,Real}=nothing,
+    chi_policy::Symbol=:fixed,
     q::Real=1.0,
     alpha::Real=0.1,
-    cutoff::Real=SVDTOL,
-    renormalize::Bool=true
+    renormalize::Bool=true,
+    return_stats::Bool=false
 )
-    _validate_evolve_args(steps, maxdim, mindim)
+    svd_floor = _resolve_svd_min(svd_min, cutoff)
+    _validate_evolve_args(steps, maxdim, mindim, truncerr, svd_floor)
+    _validate_chi_policy(chi_policy)
 
-    χ = min(maxdim, max(mindim, maximum(length.(ψ.λ))))
-
+    gate_updates = return_stats ? Any[] : nothing
     for _ in 1:steps
-        χ = _evolve_gate_sequence!(
+        updates = _evolve_gate_sequence!(
             ψ,
-            gates,
-            χ;
-            chi_policy,
+            gates;
             maxdim,
             mindim,
+            truncerr,
+            svd_min=svd_floor,
+            chi_policy,
             q,
             alpha,
-            cutoff,
-            renormalize
+            renormalize,
+            return_stats,
         )
-        if chi_policy === :adaptive
-            canonical!(ψ; maxdim=χ, cutoff, renormalize)
-        end
+        return_stats && append!(gate_updates, updates)
     end
 
-    ψ
+    return_stats ? (ψ, _aggregate_evolution_stats(gate_updates)) : ψ
 end
 
 """
-    evolve!(ψ, layers, dt, steps; trotter=:second, evolution=:real, chi_policy=:fixed, maxdim=MAXDIM, mindim=1, q=1.0, alpha=0.1, cutoff=SVDTOL, renormalize=true)
+    evolve!(ψ, layers, dt, steps; trotter=:second, evolution=:real, maxdim=MAXDIM, mindim=1, truncerr=0.0, svd_min=SVDTOL, renormalize=true, return_stats=false)
 
 Evolve `ψ` under a Hamiltonian split into commuting layers.
 
 Each layer is a collection of local Hamiltonian terms `(h, i, j)`. One
 Trotterized macro-step is first expanded into a gate sequence with
 [`trotter_gates`](@ref), after which the resulting dense gates are applied in
-place with the same fixed or adaptive bond-dimension policies as the gate-list
-[`evolve!`](@ref) method.
+place with the same local truncation controls as the gate-list [`evolve!`](@ref)
+method.
 
 Parameters:
 - `ψ`
@@ -513,7 +685,7 @@ Keyword arguments:
 - `evolution=:real`
   Use `:real` for real-time gates `exp(-1im * c * dt * h)` or `:imaginary` for
   second-order imaginary-time gates `exp(-c * dt * h)`.
-- `chi_policy`, `maxdim`, `mindim`, `q`, `alpha`, `cutoff`, `renormalize`
+- `maxdim`, `mindim`, `truncerr`, `svd_min`, `renormalize`, `return_stats`
   Match the gate-list [`evolve!`](@ref) interface.
 
 Returns:
@@ -541,38 +713,40 @@ function evolve!(
     steps::Integer;
     trotter::Symbol=:second,
     evolution::Symbol=:real,
-    chi_policy::Symbol=:fixed,
     maxdim::Integer=MAXDIM,
     mindim::Integer=1,
+    truncerr::Real=0.0,
+    svd_min::Real=SVDTOL,
+    cutoff::Union{Nothing,Real}=nothing,
+    chi_policy::Symbol=:fixed,
     q::Real=1.0,
     alpha::Real=0.1,
-    cutoff::Real=SVDTOL,
-    renormalize::Bool=true
+    renormalize::Bool=true,
+    return_stats::Bool=false
 )
-    _validate_evolve_args(steps, maxdim, mindim)
+    svd_floor = _resolve_svd_min(svd_min, cutoff)
+    _validate_evolve_args(steps, maxdim, mindim, truncerr, svd_floor)
+    _validate_chi_policy(chi_policy)
     _validate_trotter_scheme(length(layers), trotter)
     _validate_trotter_evolution(trotter, evolution)
 
-    χ = min(maxdim, max(mindim, maximum(length.(ψ.λ))))
     stages = _trotter_stage_schedule(length(layers), trotter, steps)
     gates = _materialize_trotter_gates(layers, dt, stages; evolution)
 
-    _evolve_gate_sequence!(
+    updates = _evolve_gate_sequence!(
         ψ,
-        gates,
-        χ;
-        chi_policy,
+        gates;
         maxdim,
         mindim,
+        truncerr,
+        svd_min=svd_floor,
+        chi_policy,
         q,
         alpha,
-        cutoff,
-        renormalize
+        renormalize,
+        return_stats,
     )
-    if chi_policy === :adaptive
-        canonical!(ψ; maxdim=χ, cutoff, renormalize)
-    end
-    return ψ
+    return_stats ? (ψ, _aggregate_evolution_stats(updates)) : ψ
 end
 
 #---------------------------------------------------------------------------------------------------
