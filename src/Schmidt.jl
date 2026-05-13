@@ -16,13 +16,21 @@ function _sanitize_schmidt_values(S::AbstractVector)
     return Float64.(abs.(S))
 end
 
-function _positive_eigensystem(H::AbstractMatrix; zerotol::Real=ZEROTOL)
+function _tolerance(scale::Real; zerotol::Real=ZEROTOL, rtol::Real=sqrt(eps(Float64)))
+    return max(Float64(zerotol), Float64(rtol) * max(Float64(scale), 1.0))
+end
+
+function _tolerance(vals::AbstractVector{<:Number}; zerotol::Real=ZEROTOL, rtol::Real=sqrt(eps(Float64)))
+    scale = isempty(vals) ? 0.0 : maximum(abs.(vals))
+    return _tolerance(scale; zerotol, rtol)
+end
+
+function _positive_eigensystem(H::AbstractMatrix; zerotol::Real=ZEROTOL, rtol::Real=sqrt(eps(Float64)))
     vals, vecs = eigen(Hermitian(H))
     realvals = Float64.(real.(vals))
     _finite_entries(realvals, "fixed-point eigenvalues")
 
-    maxabs = maximum(abs.(realvals); init=0.0)
-    tol = max(Float64(zerotol), sqrt(eps(Float64)) * max(maxabs, 1.0))
+    tol = _tolerance(realvals; zerotol, rtol)
     clean = similar(realvals)
     for i in eachindex(realvals)
         clean[i] = max(realvals[i], 0.0)
@@ -31,7 +39,7 @@ function _positive_eigensystem(H::AbstractMatrix; zerotol::Real=ZEROTOL)
     support = findall(>(tol), clean)
     if isempty(support)
         idx = argmax(abs.(realvals))
-        clean[idx] = max(abs(realvals[idx]), tol, eps(Float64))
+        clean[idx] = max(abs(realvals[idx]), eps(Float64))
         support = [idx]
     end
     return clean[support], vecs[:, support]
@@ -40,11 +48,23 @@ end
 function _transfer_degeneracy(Γ::AbstractArray{<:Number,3})
     Dl, _, Dr = size(Γ)
     Dl == Dr || return (degenerate=false, count=0, leading=0.0, tol=0.0)
-    vals = eigvals(kraus_mat(Γ, conj(Γ); dir=:r))
-    isempty(vals) && return (degenerate=false, count=0, leading=0.0, tol=0.0)
-    mags = sort!(Float64.(abs.(vals)); rev=true)
+
+    mags = if Dl * Dr > 2500
+        # Large bond dimension: avoid building dense D²×D² matrix.
+        # Use Krylov to get a few leading eigenvalues of the transfer map.
+        n = Dl
+        f = ρ -> kraus(Γ, conj(Γ), reshape(ρ, n, n); dir=:r)
+        T = eltype(Γ)
+        v0 = reshape(diagm(ones(T, n)), n^2)
+        vals, _ = eigsolve(f, v0, min(2, n^2), :LM; ishermitian=false)
+        sort!(Float64.(abs.(vals)); rev=true)
+    else
+        vals = eigvals(kraus_mat(Γ, conj(Γ); dir=:r))
+        isempty(vals) && return (degenerate=false, count=0, leading=0.0, tol=0.0)
+        sort!(Float64.(abs.(vals)); rev=true)
+    end
     leading = mags[1]
-    tol = max(100 * sqrt(eps(Float64)) * max(leading, 1.0), 100 * ZEROTOL)
+    tol = _tolerance(leading; zerotol=100*ZEROTOL, rtol=100*sqrt(eps(Float64)))
     leading_count = count(m -> abs(m - leading) <= tol, mags)
     return (degenerate=leading_count > 1 && leading > tol, count=leading_count, leading=leading, tol=tol)
 end
@@ -65,7 +85,7 @@ function _simple_sector_selection(Γ::AbstractArray{<:Number,3})
     end
 
     total = sum(weights) + offdiag
-    tol = max(100 * eps(Float64) * max(total, 1.0), ZEROTOL)
+    tol = _tolerance(total; zerotol=ZEROTOL, rtol=100*eps(Float64))
     active = findall(>(tol), weights)
     (length(active) > 1 && offdiag <= tol) || return nothing
 
@@ -122,6 +142,10 @@ Notes:
 - It assumes the state is in the non-degenerate injective setting.
 - The returned tensor has the right Schmidt values absorbed on its right bond,
   matching the package storage convention.
+- The pseudoinverse construction implicitly performs low-rank compression when
+  near-zero eigenvalues of the transfer-matrix fixed points are filtered by
+  `_positive_eigensystem`. A warning is emitted if the rank of either fixed
+  point is significantly smaller than the bond dimension.
 """
 function schmidt_canonical(
     Γ::AbstractArray{<:Number,3}, S::AbstractVector;
@@ -164,6 +188,10 @@ function schmidt_canonical(
     # Right eigenvector
     R = steady_mat(Γ; dir=:r)
     er, vr = _positive_eigensystem(R; zerotol)
+    bond_dim_r = size(vr, 1)
+    if length(er) < bond_dim_r
+        @warn "Low-rank compression in schmidt_canonical: right fixed-point rank $(length(er)) < bond dimension $(bond_dim_r)."
+    end
 
     # Left eigenvector
     Γc = copy(Γ)
@@ -172,6 +200,10 @@ function schmidt_canonical(
     iTEBD.tensor_lmul!(S_in, Γl)
     L = steady_mat(Γl; dir=:l)
     el, vl = _positive_eigensystem(L; zerotol)
+    bond_dim_l = size(vl, 1)
+    if length(el) < bond_dim_l
+        @warn "Low-rank compression in schmidt_canonical: left fixed-point rank $(length(el)) < bond dimension $(bond_dim_l)."
+    end
 
     # Avoid Diagonal allocations by using broadcasting
     sqrt_er = sqrt.(er)
@@ -184,7 +216,7 @@ function schmidt_canonical(
     X_inv = (vr .* inv_sqrt_er') * vr'
     Yt_inv = (vl .* inv_sqrt_el') * vl'
 
-    U, S_new, V = svd_trim(Yt * Diagonal(S_in) * X; maxdim, svd_min=cutoff, renormalize)
+    U, S_new, V = svd_trim(Yt * (S_in .* X); maxdim, svd_min=cutoff, renormalize)
     R_mat = Yt_inv * U
     L_mat = V * X_inv
     Γ_new = canonical_gauging(Γc, R_mat, L_mat)
