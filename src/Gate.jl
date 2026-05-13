@@ -103,7 +103,7 @@ function applygate!(
     renormalize::Bool=true
 )
     if isequal(i, j)
-        ψ.Γ[i] = tensor_umul(G, ψ.Γ[i])
+        tensor_umul!(G, ψ.Γ[i])
         return ψ
     end
     inds = j>i ? collect(i:j) : [i:ψ.n; 1:j]
@@ -129,7 +129,7 @@ Notes:
 - This is an internal helper used by [`evolve!`](@ref).
 """
 function _gate_indices(ψ::iMPS, i::Integer, j::Integer)
-    j > i ? collect(i:j) : [i:ψ.n; 1:j]
+    j > i ? (i:j) : [i:ψ.n; 1:j]
 end
 
 const _SUZUKI_FOURTH_P = 1 / (4 - 4^(1 / 3))
@@ -267,8 +267,12 @@ function _materialize_trotter_gates(
     stages::AbstractVector{<:Tuple{Int, <:Real}};
     evolution::Symbol=:real
 )
-    cache = Dict{Tuple{Int, Int, Float64}, Any}()
-    gates = Tuple{Any, Int, Int}[]
+    # Infer the concrete gate matrix type from the first layer term.
+    h0, _, _ = first(layers[first(stages)[1]])
+    T = typeof(exp(_trotter_time_prefactor(dt, 1.0, evolution) * h0))
+
+    cache = Dict{Tuple{Int, Int, Float64}, T}()
+    gates = Tuple{T, Int, Int}[]
 
     for (layer_idx, coeff) in stages
         for (term_idx, term) in enumerate(layers[layer_idx])
@@ -284,6 +288,20 @@ function _materialize_trotter_gates(
     return gates
 end
 
+function _fuse_consecutive_gates(gates)
+    isempty(gates) && return gates
+    fused = [first(gates)]
+    for (G, i, j) in gates[2:end]
+        G_prev, i_prev, j_prev = fused[end]
+        if i == i_prev && j == j_prev
+            fused[end] = (G * G_prev, i, j)
+        else
+            push!(fused, (G, i, j))
+        end
+    end
+    return fused
+end
+
 function _evolve_gate_sequence!(
     ψ::iMPS,
     gates,
@@ -296,17 +314,15 @@ function _evolve_gate_sequence!(
     cutoff::Real=SVDTOL,
     renormalize::Bool=true
 )
+    gates = _fuse_consecutive_gates(gates)
     for gate in gates
         G, i, j = gate
-        if chi_policy === :fixed
-            applygate!(ψ, G, i, j; maxdim, cutoff, renormalize)
-        elseif chi_policy === :adaptive
-            applygate!(ψ, G, i, j; maxdim, cutoff, renormalize)
+        applygate!(ψ, G, i, j; maxdim, cutoff, renormalize)
+        if chi_policy === :adaptive
             for k in _gate_indices(ψ, i, j)
                 χ = adaptive_bonddim(χ, ψ.λ[k]; mindim, maxdim, q, alpha, cutoff)
             end
-            canonical!(ψ; maxdim=χ, cutoff, renormalize)
-        else
+        elseif chi_policy !== :fixed
             throw(ArgumentError("unknown chi_policy $(repr(chi_policy)); use :fixed or :adaptive"))
         end
     end
@@ -460,6 +476,9 @@ function evolve!(
             cutoff,
             renormalize
         )
+        if chi_policy === :adaptive
+            canonical!(ψ; maxdim=χ, cutoff, renormalize)
+        end
     end
 
     ψ
@@ -550,6 +569,9 @@ function evolve!(
         cutoff,
         renormalize
     )
+    if chi_policy === :adaptive
+        canonical!(ψ; maxdim=χ, cutoff, renormalize)
+    end
     return ψ
 end
 
