@@ -49,6 +49,44 @@ function tensor_rmul!(Γ::AbstractArray, λ::AbstractVector{<:Number})
     Γ_reshaped = reshape(Γ, :, β)
     rmul!(Γ_reshaped, Diagonal(λ))
 end
+
+function _finite_entries(x, name::AbstractString)
+    all(isfinite, x) || throw(ArgumentError("$name must contain only finite values"))
+    return nothing
+end
+
+function _support_tol(vals::AbstractVector{<:Number}; atol::Real=ZEROTOL, rtol::Real=sqrt(eps(Float64)))
+    mags = Float64.(abs.(vals))
+    scale = isempty(mags) ? 0.0 : maximum(mags)
+    return max(Float64(atol), Float64(rtol) * max(scale, 1.0))
+end
+
+function _safe_reciprocal(
+    vals::AbstractVector{<:Number};
+    atol::Real=ZEROTOL,
+    rtol::Real=sqrt(eps(Float64)),
+)
+    _finite_entries(vals, "Schmidt values")
+    T = promote_type(eltype(vals), Float64)
+    invvals = Vector{T}(undef, length(vals))
+    tol = _support_tol(vals; atol, rtol)
+    for i in eachindex(vals)
+        invvals[i] = abs(vals[i]) > tol ? inv(T(vals[i])) : zero(T)
+    end
+    return invvals
+end
+
+function _renormalize_singular_values!(S::AbstractVector)
+    isempty(S) && return S
+    nrm = norm(S)
+    if isfinite(nrm) && nrm > 0
+        S ./= nrm
+    else
+        S .= zero(eltype(S))
+        S[begin] = one(eltype(S))
+    end
+    return S
+end
 #---------------------------------------------------------------------------------------------------
 """
     tensor_umul(umat, Γ) 
@@ -155,8 +193,104 @@ end
 #---------------------------------------------------------------------------------------------------
 # Tensor Decomposition
 #---------------------------------------------------------------------------------------------------
+function _svd_with_fallback(mat::AbstractMatrix)
+    try
+        svd(mat)
+    catch e
+        if e isa LAPACKException
+            ϵ = SVDTOL
+            perturbed = copy(mat)
+            for i in 1:min(size(mat)...)
+                perturbed[i, i] += ϵ
+            end
+            svd(perturbed; alg=LinearAlgebra.DivideAndConquer())
+        else
+            rethrow(e)
+        end
+    end
+end
+
+function _iterative_svd_trim(
+    mat::AbstractMatrix;
+    maxdim::Integer=MAXDIM,
+    svd_min::Real=SVDTOL,
+    renormalize::Bool=false,
+)
+    m, n = size(mat)
+    k = min(maxdim, min(m, n))
+    T = eltype(mat)
+    
+    # Use eigsolve on the gram matrix to get the top singular values
+    # For a matrix A, the singular values are sqrt(eigenvalues of A'*A)
+    # We compute the top k eigenvalues of A'*A
+    
+    # Choose which gram matrix to use based on dimensions
+    if m <= n
+        # Compute A * A' (m × m)
+        f = x -> mat * (mat' * x)
+        v0 = randn(T, m)
+    else
+        # Compute A' * A (n × n)
+        f = x -> mat' * (mat * x)
+        v0 = randn(T, n)
+    end
+    
+    vals, vecs = eigsolve(f, v0, k, :LM; ishermitian=true)
+    
+    # Filter out negative eigenvalues from numerical noise
+    svals = Float64[]
+    svecs = Vector{Vector{T}}()
+    for (val, vec) in zip(vals, vecs)
+        sval = sqrt(max(real(val), 0.0))
+        if sval >= svd_min
+            push!(svals, sval)
+            push!(svecs, vec)
+        end
+    end
+    
+    len = min(maxdim, length(svals))
+    if !isempty(svals)
+        len = max(1, len)
+    end
+    
+    S = svals[1:len]
+    
+    if m <= n
+        # U vectors are the eigenvectors of A*A'
+        U_mat = hcat(svecs[1:len]...)
+        # V = S^{-1} * U' * A
+        V_mat = similar(mat, len, n)
+        for i in 1:len
+            if S[i] > ZEROTOL
+                V_mat[i, :] = (U_mat[:, i]' * mat) / S[i]
+            else
+                V_mat[i, :] .= zero(T)
+            end
+        end
+    else
+        # V vectors are the eigenvectors of A'*A
+        Vt_mat = hcat(svecs[1:len]...)
+        # U = A * V * S^{-1}
+        U_mat = similar(mat, m, len)
+        for i in 1:len
+            if S[i] > ZEROTOL
+                U_mat[:, i] = (mat * Vt_mat[:, i]) / S[i]
+            else
+                U_mat[:, i] .= zero(T)
+            end
+        end
+        V_mat = Vt_mat'
+    end
+    
+    if renormalize
+        _renormalize_singular_values!(S)
+    end
+    
+    return U_mat, S, V_mat
+end
+
 """
-    svd_trim(mat; maxdim, cutoff, renormalize)
+    svd_trim(mat; maxdim, svd_min, renormalize, use_iterative)
 
 Compute an SVD of `mat` and truncate the spectrum.
 
@@ -167,10 +301,15 @@ Parameters:
 Keyword arguments:
 - `maxdim`
   Maximum number of singular values to keep.
-- `cutoff`
+- `svd_min`
   Singular-value threshold. Singular values below this threshold are discarded.
 - `renormalize`
   If `true`, renormalize the retained singular values after truncation.
+- `use_iterative`
+  If `true`, use an iterative Krylov-based SVD instead of dense LAPACK.
+  This is beneficial when `maxdim` is much smaller than the matrix dimensions.
+  If `nothing` (default), the method is chosen automatically based on matrix
+  size and `maxdim`.
 
 Returns:
 - `(U, S, V)` where `U * Diagonal(S) * V` is the truncated decomposition.
@@ -179,53 +318,156 @@ Notes:
 - The routine first tries Julia's default `svd`.
 - If LAPACK throws an exception, a small diagonal perturbation is added and the
   decomposition is retried with divide-and-conquer.
-- The truncation rule is "keep values until hitting either `cutoff` or
+- The truncation rule is "keep values until hitting either `svd_min` or
   `maxdim`".
+- Iterative SVD uses KrylovKit's `eigsolve` on the Gram matrix and is most
+  efficient when only a few leading singular values are needed from a large
+  matrix.
 """
 function svd_trim(
     mat::AbstractMatrix;
     maxdim::Integer=MAXDIM,
-    cutoff::Real=SVDTOL,
-    renormalize::Bool=false
+    svd_min::Real=SVDTOL,
+    renormalize::Bool=false,
+    use_iterative::Union{Bool,Nothing}=nothing,
 )
-    res = try
-        svd(mat)  # Standard, faster path
-    catch e
-        if e isa LAPACKException
-            ϵ = SVDTOL  # small positive number
+    maxdim > 0 || throw(ArgumentError("maxdim must be positive"))
+    isfinite(svd_min) && svd_min >= 0 || throw(ArgumentError("svd_min must be finite and non-negative"))
+    _finite_entries(mat, "SVD input matrix")
 
-            for i in 1:min(size(mat)...)
-                # this actually altered mat, but only marginally. 
-                # So I didn't rename the function to svd_trim!
-                mat[i,i] += ϵ
-            end
-            svd(mat; alg=LinearAlgebra.DivideAndConquer())
-        else
-            rethrow(e)  # rethrow if it’s an unexpected error
-        end
+    m, n = size(mat)
+    # Auto-select iterative if maxdim is much smaller than matrix dimensions
+    if isnothing(use_iterative)
+        use_iterative = maxdim < min(m, n) ÷ 4 && min(m, n) > 50
     end
+    
+    if use_iterative
+        return _iterative_svd_trim(mat; maxdim, svd_min, renormalize)
+    end
+
+    res = _svd_with_fallback(mat)
     vals = res.S
-    (maxdim > length(vals)) && (maxdim = length(vals))
-    len::Int64 = 1
-    while true
-        if isless(vals[len], cutoff)
-            len -= 1
-            break
-        end
-        isequal(len, maxdim) && break
-        len += 1
+    len = min(maxdim, count(>=(svd_min), vals))
+    if !isempty(vals)
+        len = max(1, len)
     end
     U = res.U[:, 1:len]
     S = vals[1:len]
     V = res.Vt[1:len, :]
     if renormalize
-        S ./= norm(S)
+        _renormalize_singular_values!(S)
     end
     U, S, V
 end
 #---------------------------------------------------------------------------------------------------
 """
-    tensor_svd(T; maxdim, curoff, renormalize)
+    _discarded_weight_choice(s; mindim=1, maxdim=MAXDIM, truncerr=0.0, svd_min=0.0)
+
+Choose the kept bond dimension directly from a singular-value spectrum `s`.
+
+This internal helper normalizes the weights `abs2.(s)`, finds the smallest
+`χ_req` with discarded weight at most `truncerr`, and then applies the requested
+bounds. The optional `svd_min` acts as an additional absolute floor on kept
+singular values after the discarded-weight target is evaluated.
+"""
+function _discarded_weight_choice(
+    s::AbstractVector;
+    mindim::Integer=1,
+    maxdim::Integer=MAXDIM,
+    truncerr::Real=0.0,
+    svd_min::Real=0.0
+)
+    mindim > 0 || throw(ArgumentError("mindim must be positive"))
+    maxdim > 0 || throw(ArgumentError("maxdim must be positive"))
+    maxdim >= mindim || throw(ArgumentError("maxdim must be at least mindim"))
+    truncerr >= 0 || throw(ArgumentError("truncerr must be non-negative"))
+    svd_min >= 0 || throw(ArgumentError("svd_min must be non-negative"))
+
+    vals = Float64.(abs.(s))
+    n = length(vals)
+    n == 0 && return (
+        chi_req=0,
+        chi_keep=0,
+        weights=Float64[],
+        discarded_weight=0.0,
+        saturated=false,
+        target_met=true,
+        smallest_kept_sv=0.0,
+        largest_discarded_sv=0.0,
+    )
+
+    weights = Float64.(abs2.(vals))
+    total_weight = sum(weights)
+    total_weight > 0 || return (
+        chi_req=1,
+        chi_keep=1,
+        weights=zeros(Float64, n),
+        discarded_weight=0.0,
+        saturated=false,
+        target_met=true,
+        smallest_kept_sv=vals[1],
+        largest_discarded_sv=n > 1 ? vals[2] : 0.0,
+    )
+
+    probs = weights ./ total_weight
+    cumulative = cumsum(probs)
+
+    chi_req = n
+    for χ in 1:n
+        discarded_weight = χ < n ? 1.0 - cumulative[χ] : 0.0
+        if discarded_weight <= truncerr + sqrt(eps(Float64))
+            chi_req = χ
+            break
+        end
+    end
+
+    chi_keep = min(n, clamp(chi_req, mindim, maxdim))
+    if svd_min > 0
+        chi_by_floor = count(>=(svd_min), vals)
+        chi_keep = min(chi_keep, max(chi_by_floor, min(mindim, n)))
+    end
+
+    discarded_weight = chi_keep < n ? 1.0 - cumulative[chi_keep] : 0.0
+    (
+        chi_req=chi_req,
+        chi_keep=chi_keep,
+        weights=probs,
+        discarded_weight=discarded_weight,
+        saturated=chi_req > maxdim,
+        target_met=discarded_weight <= truncerr + sqrt(eps(Float64)),
+        smallest_kept_sv=vals[chi_keep],
+        largest_discarded_sv=chi_keep < n ? vals[chi_keep + 1] : 0.0,
+    )
+end
+
+function _svd_truncate_by_error(
+    mat::AbstractMatrix;
+    maxdim::Integer=MAXDIM,
+    mindim::Integer=1,
+    truncerr::Real=0.0,
+    svd_min::Real=0.0,
+    renormalize::Bool=false
+)
+    res = _svd_with_fallback(mat)
+    choice = _discarded_weight_choice(
+        res.S;
+        mindim,
+        maxdim,
+        truncerr,
+        svd_min,
+    )
+    len = choice.chi_keep
+    U = res.U[:, 1:len]
+    S = res.S[1:len]
+    V = res.Vt[1:len, :]
+    if renormalize
+        _renormalize_singular_values!(S)
+    end
+    U, S, V, choice
+end
+#---------------------------------------------------------------------------------------------------
+"""
+    tensor_svd(T; maxdim, mindim, truncerr, svd_min, renormalize, return_stats)
 
 Perform an SVD of a four-leg block tensor by fusing its left and right halves.
 
@@ -234,8 +476,8 @@ Parameters:
   Four-leg tensor with shape `(Dl, d1, d2, Dr)`.
 
 Keyword arguments:
-- `maxdim`, `cutoff`, `renormalize`
-  Passed through to [`svd_trim`](@ref).
+- `maxdim`, `mindim`, `truncerr`, `svd_min`, `renormalize`
+  Passed through to the relevant internal SVD truncation rule.
 
 Returns:
 - `(U, S, V)` where:
@@ -249,18 +491,35 @@ Notes:
 """
 function tensor_svd(
     T::AbstractArray{<:Number, 4};
-    maxdim=MAXDIM, cutoff=SVDTOL, renormalize=false
+    maxdim::Integer=MAXDIM,
+    mindim::Integer=1,
+    truncerr::Union{Nothing,Real}=nothing,
+    svd_min::Real=SVDTOL,
+    renormalize::Bool=false,
+    return_stats::Bool=false
 )
     α, d1, d2, β = size(T)
     mat = reshape(T, α*d1, :)
-    u, S, v = svd_trim(mat; maxdim, cutoff, renormalize)
+    if isnothing(truncerr)
+        u, S, v = svd_trim(mat; maxdim, svd_min, renormalize)
+        stats = nothing
+    else
+        u, S, v, stats = _svd_truncate_by_error(
+            mat;
+            maxdim,
+            mindim,
+            truncerr,
+            svd_min,
+            renormalize,
+        )
+    end
     U = reshape(u, α, d1, :)
     V = reshape(v, :, d2, β)
-    U, S, V
+    return_stats ? (U, S, V, stats) : (U, S, V)
 end
 #---------------------------------------------------------------------------------------------------
 """
-    tensor_decomp!(Γ, λl, n; maxdim, cutoff, renormalize)
+    tensor_decomp!(Γ, λl, n; maxdim, mindim, truncerr, svd_min, renormalize)
 
 Decompose a grouped block tensor back into `n` site-local stored tensors.
 
@@ -273,7 +532,7 @@ Parameters:
   Number of sites into which the grouped tensor should be decomposed.
 
 Keyword arguments:
-- `maxdim`, `cutoff`, `renormalize`
+- `maxdim`, `mindim`, `truncerr`, `svd_min`, `renormalize`
   Truncation and normalization controls forwarded to the internal SVD steps.
 
 Returns:
@@ -290,17 +549,56 @@ function tensor_decomp!(
     Γ::AbstractArray{<:Number, 3},
     λl::AbstractVector{<:Real},
     n::Integer;
-    maxdim=MAXDIM, cutoff=SVDTOL, renormalize=false
+    maxdim::Integer=MAXDIM,
+    mindim::Integer=1,
+    truncerr::Union{Nothing,Real}=nothing,
+    svd_min::Real=SVDTOL,
+    renormalize::Bool=false,
+    return_stats::Bool=false,
+    bond_indices::Union{Nothing,AbstractVector{<:Integer}}=nothing
 )
     β = size(Γ, 3)
     d = round(Int, size(Γ, 2)^(1/n))
     Γs = Vector{Array{eltype(Γ), 3}}(undef, n)
     λs = Vector{Vector{eltype(λl)}}(undef, n-1)
+    bond_stats = return_stats ? Any[] : nothing
     Ti, λi = Γ, λl
     for i=1:n-2
         Ti_reshaped = reshape(Ti, size(Ti,1), d, :, β)
-        Ai, Λ, Ti = tensor_svd(Ti_reshaped; maxdim, cutoff, renormalize)
-        tensor_lmul!(1 ./ λi, Ai)
+        if return_stats
+            Ai, Λ, Ti, stats = tensor_svd(
+                Ti_reshaped;
+                maxdim,
+                mindim,
+                truncerr,
+                svd_min,
+                renormalize,
+                return_stats=true,
+            )
+            if !isnothing(stats)
+                bond = isnothing(bond_indices) ? i : bond_indices[i]
+                push!(bond_stats, (
+                    bond=bond,
+                    chi_req=stats.chi_req,
+                    chi_keep=stats.chi_keep,
+                    discarded_weight=stats.discarded_weight,
+                    saturated=stats.saturated,
+                    target_met=stats.target_met,
+                    smallest_kept_sv=stats.smallest_kept_sv,
+                    largest_discarded_sv=stats.largest_discarded_sv,
+                ))
+            end
+        else
+            Ai, Λ, Ti = tensor_svd(
+                Ti_reshaped;
+                maxdim,
+                mindim,
+                truncerr,
+                svd_min,
+                renormalize,
+            )
+        end
+        tensor_lmul!(_safe_reciprocal(λi), Ai)
         tensor_rmul!(Ai, Λ)
         tensor_lmul!(Λ, Ti)
         Γs[i] = Ai
@@ -308,13 +606,45 @@ function tensor_decomp!(
         λi = Λ
     end
     Ti_reshaped = reshape(Ti, size(Ti,1), d, :, β)
-    Ai, Λ, Ti = tensor_svd(Ti_reshaped; maxdim, cutoff, renormalize)
-    tensor_lmul!(1 ./ λi, Ai)
+    if return_stats
+        Ai, Λ, Ti, stats = tensor_svd(
+            Ti_reshaped;
+            maxdim,
+            mindim,
+            truncerr,
+            svd_min,
+            renormalize,
+            return_stats=true,
+        )
+        if !isnothing(stats)
+            bond = isnothing(bond_indices) ? n - 1 : bond_indices[n - 1]
+            push!(bond_stats, (
+                bond=bond,
+                chi_req=stats.chi_req,
+                chi_keep=stats.chi_keep,
+                discarded_weight=stats.discarded_weight,
+                saturated=stats.saturated,
+                target_met=stats.target_met,
+                smallest_kept_sv=stats.smallest_kept_sv,
+                largest_discarded_sv=stats.largest_discarded_sv,
+            ))
+        end
+    else
+        Ai, Λ, Ti = tensor_svd(
+            Ti_reshaped;
+            maxdim,
+            mindim,
+            truncerr,
+            svd_min,
+            renormalize,
+        )
+    end
+    tensor_lmul!(_safe_reciprocal(λi), Ai)
     tensor_rmul!(Ai, Λ)
     Γs[n-1] = Ai
     λs[n-1] = Λ
     Γs[n] = Ti
-    Γs, λs
+    return_stats ? (Γs, λs, bond_stats) : (Γs, λs)
 end
 
 

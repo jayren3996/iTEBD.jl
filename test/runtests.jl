@@ -1,111 +1,84 @@
-include("../src/iTEBD.jl")
 using Test
-using LinearAlgebra
-using TensorOperations
-using .iTEBD
-#---------------------------------------------------------------------------------------------------
-# Constant Objects
-#---------------------------------------------------------------------------------------------------
-const AKLT = begin
-    tensor = zeros(2,3,2)
-    tensor[1,1,2] = +sqrt(2/3)
-    tensor[1,2,1] = -sqrt(1/3)
-    tensor[2,2,2] = +sqrt(1/3)
-    tensor[2,3,1] = -sqrt(2/3)
-    tensor
+using iTEBD
+
+const TEST_ROOT = @__DIR__
+
+include(joinpath(TEST_ROOT, "test_utils.jl"))
+
+const TEST_GROUPS = Dict(
+    "unit" => [
+        "test_tensor_algebra.jl",
+        "test_observables.jl",
+        "test_adaptive_bonddim.jl",
+        "test_imps_canonical_api.jl",
+        "test_gate_api.jl",
+        "test_krylov.jl",
+        "test_scarfinder_api.jl",
+        "test_performance_improvements.jl",
+        "test_schmidt_fixes.jl",
+    ],
+    "api" => [
+        "test_truncation_control.jl",
+        "test_evolve_api.jl",
+        "test_scarfinder_nstep.jl",
+    ],
+    "smoke" => [
+        "test_docs_smoke.jl",
+    ],
+    "bench" => [
+        "test_bench_smoke.jl",
+    ],
+    "integration" => [
+        "test_aklt_integration.jl",
+    ],
+)
+
+const TEST_ALIASES = Dict(
+    "default" => ["unit", "api", "smoke", "integration"],
+    "fast" => ["unit", "api", "smoke"],
+    "all" => ["unit", "api", "smoke", "bench", "integration"],
+    "long" => ["integration"],
+)
+
+function _requested_test_groups()
+    raw = lowercase(strip(get(ENV, "ITEBD_TEST_GROUP", "default")))
+    isempty(raw) && return TEST_ALIASES["default"]
+
+    groups = String[]
+    for token in split(raw, [',', ';', ' ', ':']; keepempty=false)
+        if haskey(TEST_ALIASES, token)
+            append!(groups, TEST_ALIASES[token])
+        elseif haskey(TEST_GROUPS, token)
+            push!(groups, token)
+        else
+            throw(ArgumentError(
+                "unknown ITEBD_TEST_GROUP=$(repr(token)); choose one of " *
+                join(sort!(collect(keys(TEST_GROUPS))), ", ") *
+                " or aliases " *
+                join(sort!(collect(keys(TEST_ALIASES))), ", ")
+            ))
+        end
+    end
+    return unique(groups)
 end
 
-const AKLT_MPS = iMPS([AKLT, AKLT])
-const AKLT_MPS_3 = iMPS([AKLT, AKLT, AKLT])
-
-const GHZ = begin
-    tensor = zeros(2,2,2)
-    tensor[1,1,1] = 1
-    tensor[2,2,2] = 1
-    tensor
+function _selected_test_files(groups)
+    files = String[]
+    for group in groups
+        append!(files, TEST_GROUPS[group])
+    end
+    return unique(files)
 end
 
-const S1X = sqrt(2) / 2 * [0 1 0; 1 0 1; 0 1 0]
-const S1Y = sqrt(2) / 2 * 1im * [0 -1 0; 1 0 -1; 0 1 0]
-const S1Z = [1 0 0; 0 0 0; 0 0 -1]
+const REQUESTED_GROUPS = _requested_test_groups()
+const REQUESTED_FILES = _selected_test_files(REQUESTED_GROUPS)
 
-#---------------------------------------------------------------------------------------------------
-# Test imaginary-time iTEBD 
-#
-# 1. Imaginary-time evolving under AKLT Hamiltonian.
-# 2. The ourcome is compared to AKLT MPS.
-#---------------------------------------------------------------------------------------------------
-@testset "AKLT_iTEBD" begin
-    dt = 0.1
-    rdim = 50
+@info "Running iTEBD test groups" groups=REQUESTED_GROUPS files=REQUESTED_FILES
 
-    GA, GB = begin
-        ss = kron(S1X, S1X) + kron(S1Y, S1Y) + kron(S1Z, S1Z)
-        H = ss + 1/3*ss^2 + 2/3*I(9)
-        expH = exp(- dt * H)
-        expH, expH
-    end
-    
-    mps = rand_iMPS(2, 3, rdim)
-    
-    println("First-time run:")
-    @time for i=1:1000
-        applygate!(mps, GA, 1, 2; maxdim=rdim)
-        applygate!(mps, GB, 2, 1; maxdim=rdim)
-    end
-
-    @test inner_product(mps, AKLT_MPS) ≈ 1.0 atol=1e-5
-    if size(mps.Γ[1]) != (2, 3, 2)
-        canonical!(mps; maxdim=rdim)
-    end
-    @test size(mps.Γ[1]) == (2, 3, 2)
-    @test size(mps.Γ[2]) == (2, 3, 2)
-    @test mps.λ[1] ≈ [1/sqrt(2), 1/sqrt(2)] atol=1e-5
-    @test mps.λ[2] ≈ [1/sqrt(2), 1/sqrt(2)] atol=1e-5
-
-    # Bench-Mark
-    # Best: 0.419608 seconds (221.96 k allocations: 271.772 MiB, 5.56% gc time)
-    println("Second-time run:")
-    mps = rand_iMPS(2, 3, rdim)
-    @time for i=1:1000
-        applygate!(mps, GA, 1, 2; maxdim=rdim)
-        applygate!(mps, GB, 2, 1; maxdim=rdim)
+@testset "iTEBD.jl" begin
+    for file in REQUESTED_FILES
+        @testset "$file" begin
+            include(joinpath(TEST_ROOT, file))
+        end
     end
 end
-#---------------------------------------------------------------------------------------------------
-@testset "AKLT_iTEBD_3" begin
-    dt = 0.1
-    rdim = 50
-
-    GA, GB, GC = begin
-        ss = kron(S1X, S1X) + kron(S1Y, S1Y) + kron(S1Z, S1Z)
-        H = ss + 1/3*ss^2 + 2/3*I(9)
-        expH = exp(- dt * H)
-        expH, expH, expH
-    end
-
-    mps = rand_iMPS(3, 3, rdim)
-
-    @time for i=1:1000
-        applygate!(mps, GA, 1, 2; maxdim=rdim)
-        applygate!(mps, GB, 2, 3; maxdim=rdim)
-        applygate!(mps, GC, 3, 1; maxdim=rdim)
-    end
-    canonical!(mps; maxdim=rdim)
-
-    @test size(mps.Γ[1]) == (2, 3, 2)
-    @test size(mps.Γ[2]) == (2, 3, 2)
-    @test size(mps.Γ[3]) == (2, 3, 2)
-    @test mps.λ[1] ≈ [1/sqrt(2), 1/sqrt(2)] atol=1e-5
-    @test mps.λ[2] ≈ [1/sqrt(2), 1/sqrt(2)] atol=1e-5
-    @test mps.λ[3] ≈ [1/sqrt(2), 1/sqrt(2)] atol=1e-5
-    @test inner_product(mps, AKLT_MPS_3) ≈ 1.0 atol=1e-5
-end
-
-
-include("test_imps_canonical_api.jl")
-include("test_adaptive_bonddim.jl")
-include("test_evolve_api.jl")
-include("test_scarfinder_nstep.jl")
-include("test_docs_smoke.jl")
-include("test_bench_smoke.jl")

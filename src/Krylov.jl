@@ -147,10 +147,17 @@ Notes:
 """
 function steady_mat(K::AbstractArray{<:Number, 3}; dir::Symbol=:r)
     a, b, _ = size(K)
-    vec = if b > a || a <= 8
+    # Threshold for using Krylov vs dense eigendecomposition.
+    # For large bond dimensions (a), building a dense a^2 × a^2 transfer matrix
+    # and running full eigen becomes O(a^6) time and O(a^4) memory.
+    # When the physical dimension b is also large (grouped tensors), the condition
+    # b > a used to force dense mode. Now we prefer Krylov for a > 32 regardless.
+    use_dense = (a <= 8) || (a <= 32 && b <= a)
+    vec = if use_dense
         m = kraus_mat(K, conj(K); dir) 
-        _, vecs = eigen(m)
-        v = reshape(vecs[:,end], a, a)
+        vals, vecs = eigen(m)
+        idx = argmax(abs.(vals))
+        v = reshape(vecs[:,idx], a, a)
         real(tr(v)) < 0 ? -v : v
     else
         krylov_eigen(K, conj(K); dir)[2]

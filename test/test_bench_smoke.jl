@@ -1,7 +1,8 @@
 using Test
 
 @testset "BENCH_SMOKE" begin
-    bench_project = joinpath(pwd(), "bench")
+    root = dirname(@__DIR__)
+    bench_project = joinpath(root, "bench")
     bench_script = joinpath(bench_project, "bench_trotter_vs_manual.jl")
     output = read(
         `$(Base.julia_cmd()) --project=$bench_project -e "using Pkg; Pkg.resolve(); Pkg.instantiate(); include(raw\"$bench_script\")" -- --smoke`,
