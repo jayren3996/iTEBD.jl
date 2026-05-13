@@ -75,6 +75,21 @@ end
     @test norm(S2) ≈ 1.0
 end
 
+@testset "SVD_TRIM_ITERATIVE_KEEPS_ONE_VALUE_BELOW_THRESHOLD" begin
+    M = Matrix(Diagonal([1e-14, 5e-15, 0.0]))
+
+    U, S, V = iTEBD.svd_trim(M; maxdim=3, svd_min=1e-12, use_iterative=true)
+
+    @test U isa Matrix{Float64}
+    @test S isa Vector{Float64}
+    @test V isa Matrix{Float64}
+    @test size(U) == (3, 1)
+    @test length(S) == 1
+    @test size(V) == (1, 3)
+    @test isfinite(S[1])
+    @test 0 <= S[1] < 1e-12
+end
+
 @testset "DISCARDED_WEIGHT_SELECTOR_REJECTS_INVALID_ARGUMENTS" begin
     @test_throws ArgumentError iTEBD._discarded_weight_choice([1.0]; mindim=0)
     @test_throws ArgumentError iTEBD._discarded_weight_choice([1.0]; maxdim=0)

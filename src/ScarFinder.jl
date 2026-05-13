@@ -71,7 +71,8 @@ function _evolve_uniform!(ψ::iMPS, G::AbstractMatrix; span::Integer, maxdim::In
     # This reduces O(n) gate applications to O(1) when all sites are identical.
     # Note: truncation may break exact translational invariance, so this is
     # guarded by an approximate equality check.
-    is_uniform = ψ.n > 1 &&
+    is_uniform = span == 1 &&
+                 ψ.n > 1 &&
                  all(ψ.λ[1] ≈ ψ.λ[i] for i in 2:ψ.n) &&
                  all(ψ.Γ[1] ≈ ψ.Γ[i] for i in 2:ψ.n)
     if is_uniform
@@ -347,25 +348,9 @@ Notes:
 function _minimize_on_trajectory!(f, step!, ψ::iMPS, samples::Integer)
     ψtrial = deepcopy(ψ)
     values = zeros(Float64, samples)
-    best_val = Inf
-    best_idx = 0
-    no_improve_count = 0
-    early_exit_window = max(1, samples ÷ 10)
     for i in 1:samples
         step!(ψtrial)
         values[i] = f(ψtrial)
-        if values[i] < best_val - sqrt(eps(Float64))
-            best_val = values[i]
-            best_idx = i
-            no_improve_count = 0
-        else
-            no_improve_count += 1
-            if no_improve_count >= early_exit_window
-                # Early exit: objective has not improved for a while
-                resize!(values, i)
-                break
-            end
-        end
     end
     _, index = findmin(values)
     for _ in 1:index

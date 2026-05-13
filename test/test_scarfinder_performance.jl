@@ -79,6 +79,33 @@ end
     @test ψ_copy2.n == ψ.n
 end
 
+@testset "MINIMIZE_ON_TRAJECTORY_SAMPLES_ALL_POINTS_FOR_LATE_MINIMUM" begin
+    ψ = product_iMPS(ComplexF64, [[1, 0], [0, 1]])
+    values = [10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0, 17.0, 18.0, 19.0, -1.0, 20.0]
+    eval_count = Ref(0)
+    trial_steps = Ref(0)
+    replay_steps = Ref(0)
+
+    f = _ -> begin
+        eval_count[] += 1
+        values[eval_count[]]
+    end
+    step! = ψ0 -> begin
+        if ψ0 === ψ
+            replay_steps[] += 1
+        else
+            trial_steps[] += 1
+        end
+        return ψ0
+    end
+
+    iTEBD._minimize_on_trajectory!(f, step!, ψ, length(values))
+
+    @test trial_steps[] == length(values)
+    @test eval_count[] == length(values)
+    @test replay_steps[] == 11
+end
+
 # =============================================================================
 # Fix 4: _evolve_uniform! should handle translationally invariant states
 # =============================================================================

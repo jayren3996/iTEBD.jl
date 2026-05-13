@@ -1,53 +1,52 @@
-
+using DelimitedFiles
 using LinearAlgebra
 using Printf
-using Plots
+using Test
 using iTEBD
-using iTEBD: spin
-using PyCall
-np = pyimport("numpy")
-data = np.loadtxt("Ent_Z2.dat")
-t = data[:, 1]
-s0 = data[:, 2]
 
-const BOND = 400
-const DT = 0.1 / 5
-const steps = 350
+const SMOKE_MODE = "--smoke" in ARGS
+const BOND = SMOKE_MODE ? 16 : 400
+const DT = 0.1 / (SMOKE_MODE ? 1 : 5)
+const SUB_DIV = SMOKE_MODE ? 1 : 5
 
-
-# Z2 state
-z2 = begin
-    v = [[0, 1], [1,0], [0, 1], [1,0]]
-    product_iMPS(ComplexF64, v)
-end
-
-const G1, G2, G3, G4 = begin
-    sx = spin((2, "1x1"))
-    p2 = diagm([0,1,1,1])
-    p3 = kron(p2, I(2)) * kron(I(2), p2)
-    H = p3 * sx * p3
-    expH = exp(-1im * DT * H)
-    gate(expH, [1,2,3], bound=BOND), 
-    gate(expH, [2,3,4], bound=BOND), 
-    gate(expH, [3,4,1], bound=BOND),
-    gate(expH, [4,1,2], bound=BOND)
-end
-
-const S = zeros(steps)
-
-for i=2:steps
-    global DT, z2, G1, G2, G3, G4, S
-    for j=1:5
-        applygate!(z2, G1)
-        applygate!(z2, G2)
-        applygate!(z2, G3)
-        applygate!(z2, G4)
+function _reference_data()
+    path = joinpath(dirname(@__DIR__), "examples", "Ent_Z2.dat")
+    data = readdlm(path)
+    if SMOKE_MODE
+        data = data[1:min(4, size(data, 1)), :]
     end
-    EE = entropy(z2, 1)
-    @printf("t = %.2f, S = %.5f.\n", 0.1*(i-1), EE)
-    S[i] = EE
+    return data[:, 1], data[:, 2]
 end
 
+function _pxp_gate()
+    p0 = [0.0 0.0; 0.0 1.0]
+    x = [0.0 1.0; 1.0 0.0]
+    h_pxp = kron(p0, x, p0)
+    return exp(-1im * DT * h_pxp)
+end
 
-plot(t, [s0, S])
-println("Error = $(norm(S-s0))")
+function _pxp_step!(psi::iMPS, gate::AbstractMatrix)
+    applygate!(psi, gate, 1, 3; maxdim=BOND)
+    applygate!(psi, gate, 2, 4; maxdim=BOND)
+    applygate!(psi, gate, 3, 1; maxdim=BOND)
+    applygate!(psi, gate, 4, 2; maxdim=BOND)
+    return psi
+end
+
+t, reference_entropy = _reference_data()
+entropy = zeros(Float64, length(reference_entropy))
+gate = _pxp_gate()
+
+z2 = product_iMPS(ComplexF64, [[0, 1], [1, 0], [0, 1], [1, 0]])
+
+for i in 2:length(reference_entropy)
+    for _ in 1:SUB_DIV
+        _pxp_step!(z2, gate)
+    end
+    entropy[i] = iTEBD.ent_S(z2, 1)
+    @printf("t = %.2f, S = %.5f.\n", t[i], entropy[i])
+end
+
+error = norm(entropy - reference_entropy)
+@test isfinite(error)
+println("Error = $(error)")

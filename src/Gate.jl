@@ -438,21 +438,6 @@ function _materialize_trotter_gates(
     return gates
 end
 
-function _fuse_consecutive_gates(gates)
-    isempty(gates) && return gates
-    fused = [gates[1]]
-    for k in 2:length(gates)
-        G_prev, i_prev, j_prev = fused[end]
-        G_curr, i_curr, j_curr = gates[k]
-        if i_curr == i_prev && j_curr == j_prev
-            fused[end] = (G_curr * G_prev, i_prev, j_prev)
-        else
-            push!(fused, gates[k])
-        end
-    end
-    return fused
-end
-
 function _evolve_gate_sequence!(
     ψ::iMPS,
     gates;
@@ -467,7 +452,6 @@ function _evolve_gate_sequence!(
     q::Real=1.0,
     alpha::Real=0.1
 )
-    gates = _fuse_consecutive_gates(gates)
     svd_floor = _resolve_svd_min(svd_min, cutoff)
     _validate_chi_policy(chi_policy)
     gate_updates = return_stats ? Any[] : nothing

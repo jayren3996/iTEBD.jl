@@ -166,19 +166,25 @@ end
     @test psi_seq.Γ[2] ≈ psi_fused.Γ[2] atol=1e-12
 end
 
-@testset "GATE_FUSION_EVOLVE" begin
-    X = [0.0 1.0; 1.0 0.0]
-    G1 = kron(X, I(2))
-    G2 = kron(I(2), X)
+@testset "EVOLVE_SAME_SUPPORT_GATES_APPLY_SEQUENTIALLY" begin
+    H = 1 / sqrt(2) * [1.0 1.0; 1.0 -1.0]
+    CNOT = [1.0 0 0 0;
+            0 1 0 0;
+            0 0 0 1;
+            0 0 1 0]
+    bell_gate = CNOT * kron(H, I(2))
+    inverse_bell_gate = adjoint(bell_gate)
 
-    psi_seq = product_iMPS(ComplexF64, [[1, 0], [0, 1]])
+    psi_manual = product_iMPS(ComplexF64, [[1, 0], [0, 1]])
     psi_evolve = product_iMPS(ComplexF64, [[1, 0], [0, 1]])
 
-    evolve!(psi_seq, [(G1, 1, 2), (G2, 1, 2)], 1; maxdim=4)
-    evolve!(psi_evolve, [(G1, 1, 2), (G2, 1, 2)], 1; maxdim=4)
+    applygate!(psi_manual, bell_gate, 1, 2; maxdim=1)
+    applygate!(psi_manual, inverse_bell_gate, 1, 2; maxdim=1)
+    evolve!(psi_evolve, [(bell_gate, 1, 2), (inverse_bell_gate, 1, 2)], 1; maxdim=1)
 
-    @test psi_seq.λ[1] ≈ psi_evolve.λ[1] atol=1e-12
-    @test psi_seq.λ[2] ≈ psi_evolve.λ[2] atol=1e-12
+    @test abs(iTEBD.inner_product(psi_evolve, psi_manual)) ≈ 1.0 atol=1e-12
+    @test psi_evolve.Γ[1] ≈ psi_manual.Γ[1] atol=1e-12
+    @test psi_evolve.Γ[2] ≈ psi_manual.Γ[2] atol=1e-12
 end
 
 @testset "TROTTER_GATES_TYPED" begin

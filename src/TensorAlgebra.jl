@@ -256,7 +256,8 @@ function _iterative_svd_trim(
     m, n = size(mat)
     k = min(maxdim, min(m, n))
     T = eltype(mat)
-    
+    SType = typeof(sqrt(float(real(zero(T)))))
+
     # Use eigsolve on the gram matrix to get the top singular values
     # For a matrix A, the singular values are sqrt(eigenvalues of A'*A)
     # We compute the top k eigenvalues of A'*A
@@ -266,7 +267,7 @@ function _iterative_svd_trim(
         @warn "iterative SVD path used on a potentially ill-conditioned matrix; " *
               "the Gram-matrix approach squares condition numbers and may lose accuracy"
     end
-    
+
     # Choose which gram matrix to use based on dimensions
     if m <= n
         # Compute A * A' (m × m)
@@ -277,27 +278,31 @@ function _iterative_svd_trim(
         f = x -> mat' * (mat * x)
         v0 = randn(T, n)
     end
-    
+
     vals, vecs = eigsolve(f, v0, k, :LM; ishermitian=true, tol=svd_min)
-    
-    # Filter out negative eigenvalues from numerical noise
-    svals = Float64[]
+
+    # Clip negative eigenvalues from numerical noise, but keep at least the
+    # leading Ritz value to match the dense path when every singular value is
+    # below svd_min.
+    ritz = sort(
+        [(SType(sqrt(max(real(val), 0.0))), vec) for (val, vec) in zip(vals, vecs)];
+        by=first,
+        rev=true,
+    )
+    svals = SType[]
     svecs = Vector{Vector{T}}()
-    for (val, vec) in zip(vals, vecs)
-        sval = sqrt(max(real(val), 0.0))
-        if sval >= svd_min
-            push!(svals, sval)
-            push!(svecs, vec)
-        end
+    for (sval, vec) in ritz
+        push!(svals, sval)
+        push!(svecs, vec)
     end
-    
-    len = min(maxdim, length(svals))
+
+    len = min(maxdim, count(>=(svd_min), svals))
     if !isempty(svals)
         len = max(1, len)
     end
-    
+
     S = svals[1:len]
-    
+
     if m <= n
         # U vectors are the eigenvectors of A*A'
         U_mat = hcat(svecs[1:len]...)
@@ -324,11 +329,11 @@ function _iterative_svd_trim(
         end
         V_mat = Vt_mat'
     end
-    
+
     if renormalize
         _renormalize_singular_values!(S)
     end
-    
+
     return U_mat, S, V_mat
 end
 
@@ -351,8 +356,8 @@ Keyword arguments:
 - `use_iterative`
   If `true`, use an iterative Krylov-based SVD instead of dense LAPACK.
   This is beneficial when `maxdim` is much smaller than the matrix dimensions.
-  If `nothing` (default), the method is chosen automatically based on matrix
-  size and `maxdim`.
+  If `nothing`, the method is chosen automatically based on matrix size and
+  `maxdim`. The default is `false`.
 
 Returns:
 - `(U, S, V)` where `U * Diagonal(S) * V` is the truncated decomposition.
@@ -383,7 +388,7 @@ function svd_trim(
     if isnothing(use_iterative)
         use_iterative = maxdim < min(m, n) ÷ 10 && min(m, n) > 200
     end
-    
+
     if use_iterative
         return _iterative_svd_trim(mat; maxdim, svd_min, renormalize)
     end

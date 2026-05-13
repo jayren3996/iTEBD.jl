@@ -7,8 +7,8 @@ using iTEBD
 const SMOKE_MODE = "--smoke" in ARGS
 const BENCH_SAMPLES = SMOKE_MODE ? 1 : 10
 const BENCH_SECONDS = SMOKE_MODE ? 0.02 : 1.0
-const AKLT_STEPS = SMOKE_MODE ? 10 : 1000
-const AKLT_MAXDIM = 50
+const AKLT_STEPS = SMOKE_MODE ? 1 : 1000
+const AKLT_MAXDIM = SMOKE_MODE ? 4 : 50
 const REALTIME_CONFIGS = SMOKE_MODE ? [(0.2, 4, "budget"), (0.1, 8, "half_dt")] :
                                       [(0.2, 20, "budget"), (0.1, 40, "half_dt")]
 

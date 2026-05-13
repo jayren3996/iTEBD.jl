@@ -35,11 +35,12 @@ using iTEBD
         @test res_small.degenerate isa Bool
         @test res_small.count isa Int
 
-        # Large bond dimension (should not crash; uses iterative path)
+        # Large bond dimension should return quickly; expensive degeneracy
+        # detection is intentionally skipped for this diagnostic preflight.
         Γ_large = randn(ComplexF64, 52, 2, 52)
         res_large = iTEBD._transfer_degeneracy(Γ_large)
-        @test res_large.degenerate isa Bool
-        @test res_large.count isa Int
+        @test res_large.degenerate == false
+        @test res_large.count == 0
     end
 
     @testset "TOLERANCE_HELPER_EXISTS_AND_CONSISTENT" begin

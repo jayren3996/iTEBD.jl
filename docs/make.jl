@@ -4,7 +4,9 @@ using LinearAlgebra
 
 DocMeta.setdocmeta!(iTEBD, :DocTestSetup, :(using iTEBD, LinearAlgebra); recursive=true)
 
-makedocs(
+const DOCS_SMOKE = get(ENV, "ITEBD_DOCS_SMOKE", "false") == "true"
+
+makedocs(;
     sitename="iTEBD.jl",
     modules=[iTEBD],
     authors="jayren3996",
@@ -22,9 +24,12 @@ makedocs(
             "API Reference" => "api.md",
         ],
     ],
+    (DOCS_SMOKE ? (; remotes=nothing) : (;))...,
 )
 
-deploydocs(
-    repo="github.com/jayren3996/iTEBD.jl.git",
-    devbranch="master",
-)
+if !DOCS_SMOKE
+    deploydocs(
+        repo="github.com/jayren3996/iTEBD.jl.git",
+        devbranch="master",
+    )
+end

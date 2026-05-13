@@ -11,9 +11,8 @@ or Schmidt spectrum `p`, ignoring entries smaller than `cutoff`.
 
 Parameters:
 - `p`
-  Probability vector or Schmidt-weight vector. The function does not normalize
-  `p`, so callers are expected to pass a properly normalized spectrum when that
-  interpretation matters.
+  Probability vector or Schmidt-weight vector. The function normalizes `p` by
+  `sum(p)` before applying the entropy formula.
 
 Keyword arguments:
 - `cutoff=1e-10`

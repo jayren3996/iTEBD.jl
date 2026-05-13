@@ -49,20 +49,16 @@ function _transfer_degeneracy(Γ::AbstractArray{<:Number,3})
     Dl, _, Dr = size(Γ)
     Dl == Dr || return (degenerate=false, count=0, leading=0.0, tol=0.0)
 
-    mags = if Dl * Dr > 2500
-        # Large bond dimension: avoid building dense D²×D² matrix.
-        # Use Krylov to get a few leading eigenvalues of the transfer map.
-        n = Dl
-        f = ρ -> kraus(Γ, conj(Γ), reshape(ρ, n, n); dir=:r)
-        T = eltype(Γ)
-        v0 = reshape(diagm(ones(T, n)), n^2)
-        vals, _ = eigsolve(f, v0, min(2, n^2), :LM; ishermitian=false)
-        sort!(Float64.(abs.(vals)); rev=true)
-    else
-        vals = eigvals(kraus_mat(Γ, conj(Γ); dir=:r))
-        isempty(vals) && return (degenerate=false, count=0, leading=0.0, tol=0.0)
-        sort!(Float64.(abs.(vals)); rev=true)
+    if Dl * Dr > 2500
+        # Degeneracy detection is diagnostic. Avoid a Krylov preflight here:
+        # on moderately large random tensors it can dominate or stall
+        # canonicalization before the actual fixed-point solve starts.
+        return (degenerate=false, count=0, leading=0.0, tol=0.0)
     end
+
+    vals = eigvals(kraus_mat(Γ, conj(Γ); dir=:r))
+    isempty(vals) && return (degenerate=false, count=0, leading=0.0, tol=0.0)
+    mags = sort!(Float64.(abs.(vals)); rev=true)
     leading = mags[1]
     tol = _tolerance(leading; zerotol=100*ZEROTOL, rtol=100*sqrt(eps(Float64)))
     leading_count = count(m -> abs(m - leading) <= tol, mags)

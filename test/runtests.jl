@@ -16,6 +16,7 @@ const TEST_GROUPS = Dict(
         "test_scarfinder_api.jl",
         "test_performance_improvements.jl",
         "test_schmidt_fixes.jl",
+        "test_imps_fixes.jl",
     ],
     "api" => [
         "test_truncation_control.jl",
@@ -27,6 +28,8 @@ const TEST_GROUPS = Dict(
     ],
     "bench" => [
         "test_bench_smoke.jl",
+        "test_scarfinder_performance.jl",
+        "test_pxp_legacy_smoke.jl",
     ],
     "integration" => [
         "test_aklt_integration.jl",
@@ -70,8 +73,21 @@ function _selected_test_files(groups)
     return unique(files)
 end
 
-const REQUESTED_GROUPS = _requested_test_groups()
-const REQUESTED_FILES = _selected_test_files(REQUESTED_GROUPS)
+function _selected_test_files_from_args(args)
+    files = String[]
+    for arg in args
+        file = basename(arg)
+        path = joinpath(TEST_ROOT, file)
+        isfile(path) || throw(ArgumentError(
+            "unknown test file $(repr(arg)); pass a filename under test/ or use ITEBD_TEST_GROUP"
+        ))
+        push!(files, file)
+    end
+    return unique(files)
+end
+
+const REQUESTED_GROUPS = isempty(ARGS) ? _requested_test_groups() : String["ARGS"]
+const REQUESTED_FILES = isempty(ARGS) ? _selected_test_files(REQUESTED_GROUPS) : _selected_test_files_from_args(ARGS)
 
 @info "Running iTEBD test groups" groups=REQUESTED_GROUPS files=REQUESTED_FILES
 

@@ -68,7 +68,7 @@ All interfaces support the refinement controls:
 - `refine=true`
   After the main `N` iterations, scan a short trajectory and keep the
   minimum-entanglement point.
-- `refine_step=1000`
+- `refine_step=100`
   Number of trial points used in that scan.
 
 The Hamiltonian-based interface also supports:

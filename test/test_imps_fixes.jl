@@ -1,25 +1,31 @@
 using Test
 using LinearAlgebra
+using ITensors
+using ITensorMPS
 
 @isdefined(iTEBD) || include("../src/iTEBD.jl")
 using .iTEBD: iTEBD, iMPS, rand_iMPS, product_iMPS, canonical!, expect, getindex
 using .iTEBD: MAXDIM, SVDTOL, SORTTOL, ZEROTOL, KRLOV_POWER
 
 #-----------------------------------------------------------------------
-# Issue 1: imps2mps undefined L
+# Issue 1: imps2mps converts product iMPS to finite MPS
 #-----------------------------------------------------------------------
-@testset "IMPS2MPS_L_DEFINED" begin
+@testset "IMPS2MPS_PRODUCT_STATE" begin
     ψ = product_iMPS(ComplexF64, [[1, 0]])
-    # Verify the method exists and accepts L keyword
-    @test hasmethod(iTEBD.imps2mps, (iMPS, Any), (:L,))
-    # Verify calling it does not throw UndefVarError(:L)
-    err = nothing
-    try
-        iTEBD.imps2mps(ψ, 1:4)
-    catch e
-        err = e
-    end
-    @test !(err isa UndefVarError && err.var == :L)
+    sites = [Index(2, "site=$i") for i in 1:4]
+    mps = iTEBD.imps2mps(ψ, sites)
+
+    @test mps isa ITensorMPS.AbstractMPS
+    @test length(mps) == length(sites)
+end
+
+@testset "IMPS2MPS_REPEATS_UNIT_CELL_TO_REQUESTED_LENGTH" begin
+    ψ = product_iMPS(ComplexF64, [[1, 0], [0, 1]])
+    sites = [Index(2, "site=$i") for i in 1:5]
+    mps = iTEBD.imps2mps(ψ, sites; L=length(sites))
+
+    @test mps isa ITensorMPS.AbstractMPS
+    @test length(mps) == length(sites)
 end
 
 #-----------------------------------------------------------------------

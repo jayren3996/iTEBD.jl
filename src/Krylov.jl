@@ -81,7 +81,7 @@ function kraus_mat(KL::AbstractArray{<:Number, 3}, KU::AbstractArray{<:Number, 3
 end
 #---------------------------------------------------------------------------------------------------
 """
-    krylov_eigen(KL, KU, ρ0=nothing; dir=:r)
+    krylov_eigen(KL, KU, ρ0=nothing; dir=:r, project_psd=false)
 
 Compute the dominant eigenpair of the transfer map defined by `KL` and `KU`.
 
@@ -94,6 +94,9 @@ Parameters:
 Keyword arguments:
 - `dir=:r`
   Direction of the fixed-point equation.
+- `project_psd=false`
+  If `true`, symmetrize the returned eigenmatrix and project it to the positive
+  semidefinite cone when needed. This is only appropriate for self-transfer maps.
 
 Returns:
 - `(λ, ρ)` where `λ` is the dominant eigenvalue and `ρ` is the corresponding
@@ -103,9 +106,10 @@ Notes:
 - Internally this uses `eigsolve` on the vectorized map.
 """
 function krylov_eigen(
-    KL::AbstractArray{<:Number, 3}, KU::AbstractArray{<:Number, 3}, 
+    KL::AbstractArray{<:Number, 3}, KU::AbstractArray{<:Number, 3},
     ρ0::Union{AbstractMatrix, Nothing}=nothing;
-    dir::Symbol=:r
+    dir::Symbol=:r,
+    project_psd::Bool=false,
 )
     n = size(KL, 1)
     f = ρ -> kraus(KL, KU, reshape(ρ, n, n); dir)
@@ -125,14 +129,15 @@ function krylov_eigen(
     if real(tr(ρ)) < 0
         ρ = -ρ
     end
-    # Symmetrize and enforce positive semidefiniteness
-    ρ = (ρ + ρ') / 2
-    min_eig = minimum(real.(eigvals(Hermitian(ρ))))
-    if min_eig < -1e-10
-        @warn "Fixed-point matrix has negative eigenvalues (min=$min_eig); projecting to PSD cone"
-        evals, evecs = eigen(Hermitian(ρ))
-        evals_clipped = max.(evals, 0.0)
-        ρ = evecs * Diagonal(evals_clipped) * evecs'
+    if project_psd
+        ρ = (ρ + ρ') / 2
+        min_eig = minimum(real.(eigvals(Hermitian(ρ))))
+        if min_eig < -1e-10
+            @warn "Fixed-point matrix has negative eigenvalues (min=$min_eig); projecting to PSD cone"
+            evals, evecs = eigen(Hermitian(ρ))
+            evals_clipped = max.(evals, 0.0)
+            ρ = evecs * Diagonal(evals_clipped) * evecs'
+        end
     end
     vals[1], ρ
 end
@@ -164,7 +169,7 @@ function steady_mat(K::AbstractArray{<:Number, 3}; dir::Symbol=:r)
     # and running full eigen becomes O(a^6) time and O(a^4) memory.
     # When the physical dimension b is also large (grouped tensors), the condition
     # b > a used to force dense mode. Now we prefer Krylov for a > 32 regardless.
-    use_dense = a^2 <= 4096
+    use_dense = a <= 32
     vec = if use_dense
         m = kraus_mat(K, conj(K); dir)
         vals, vecs = eigen(m)
@@ -172,7 +177,7 @@ function steady_mat(K::AbstractArray{<:Number, 3}; dir::Symbol=:r)
         v = reshape(vecs[:,idx], a, a)
         real(tr(v)) < 0 ? -v : v
     else
-        krylov_eigen(K, conj(K); dir)[2]
+        krylov_eigen(K, conj(K); dir, project_psd=true)[2]
     end
     # Explicitly symmetrize before wrapping in Hermitian
     vec = (vec + vec') / 2
@@ -207,6 +212,6 @@ function fixed_point_mat(
     ρ0 = rand(ComplexF64, α, α)
     ρ0 = ρ0 * ρ0'
     ρ0 /= tr(ρ0)
-    _, vec = krylov_eigen(K, conj(K), ρ0; dir)
+    _, vec = krylov_eigen(K, conj(K), ρ0; dir, project_psd=true)
     vec |> Hermitian
 end

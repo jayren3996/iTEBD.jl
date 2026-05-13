@@ -210,6 +210,18 @@ function product_iMPS(v::AbstractVector{<:AbstractVector{<:Number}})
 end
 #---------------------------------------------------------------------------------------------------
 export canonical!
+function _validate_canonical_options(maxdim, cutoff, noninjective::Symbol, symmetry_break::Symbol)
+    maxdim isa Integer || throw(ArgumentError("maxdim must be an integer"))
+    maxdim > 0 || throw(ArgumentError("maxdim must be positive"))
+    cutoff isa Real || throw(ArgumentError("cutoff must be real"))
+    isfinite(cutoff) && cutoff >= 0 || throw(ArgumentError("cutoff must be finite and non-negative"))
+    noninjective in (:warn, :error, :ignore) ||
+        throw(ArgumentError("noninjective must be one of :warn, :error, or :ignore"))
+    symmetry_break in (:auto, :none) ||
+        throw(ArgumentError("symmetry_break must be one of :auto or :none"))
+    return nothing
+end
+
 """
     canonical!(
         ψ;
@@ -272,18 +284,6 @@ canonical!(psi; maxdim=4, cutoff=1e-12, renormalize=true)
 Gamma1, lambda1 = psi[1]
 ```
 """
-function _validate_canonical_options(maxdim, cutoff, noninjective::Symbol, symmetry_break::Symbol)
-    maxdim isa Integer || throw(ArgumentError("maxdim must be an integer"))
-    maxdim > 0 || throw(ArgumentError("maxdim must be positive"))
-    cutoff isa Real || throw(ArgumentError("cutoff must be real"))
-    isfinite(cutoff) && cutoff >= 0 || throw(ArgumentError("cutoff must be finite and non-negative"))
-    noninjective in (:warn, :error, :ignore) ||
-        throw(ArgumentError("noninjective must be one of :warn, :error, or :ignore"))
-    symmetry_break in (:auto, :none) ||
-        throw(ArgumentError("symmetry_break must be one of :auto or :none"))
-    return nothing
-end
-
 function canonical!(
     ψ::iMPS;
     maxdim=MAXDIM,
