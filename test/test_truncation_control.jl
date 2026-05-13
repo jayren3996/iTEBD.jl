@@ -112,7 +112,7 @@ end
 
     psi_after, stats = evolve!(
         psi,
-        [(BELL_GATE, 1, 2), (adjoint(BELL_GATE), 1, 2)],
+        [(BELL_GATE, 1, 2), (adjoint(BELL_GATE), 2, 1)],
         1;
         maxdim=4,
         truncerr=1e-12,

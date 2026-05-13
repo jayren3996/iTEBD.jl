@@ -1,5 +1,6 @@
 using Test
 using LinearAlgebra
+using Logging
 using iTEBD
 
 if !isdefined(Main, :TestUtils)

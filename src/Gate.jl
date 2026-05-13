@@ -412,8 +412,14 @@ function _materialize_trotter_gates(
     stages::AbstractVector{<:Tuple{Int, <:Real}};
     evolution::Symbol=:real
 )
-    cache = Dict{Tuple{Int, Int, Float64}, Any}()
-    gates = Tuple{Any, Int, Int}[]
+    # Infer the matrix element type from the first Hamiltonian term
+    T = if !isempty(layers) && !isempty(first(layers))
+        eltype(first(first(layers))[1])
+    else
+        ComplexF64
+    end
+    cache = Dict{Tuple{Int, Int, Float64}, Matrix{T}}()
+    gates = Tuple{Matrix{T}, Int, Int}[]
 
     for (layer_idx, coeff) in stages
         for (term_idx, term) in enumerate(layers[layer_idx])
