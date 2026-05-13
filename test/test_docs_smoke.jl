@@ -1,7 +1,8 @@
 using Test
 
 @testset "DOCS_SCAFFOLD" begin
-    @test isfile("docs/make.jl")
-    @test isfile("docs/src/index.md")
-    @test isfile("docs/Project.toml")
+    root = dirname(@__DIR__)
+    @test isfile(joinpath(root, "docs", "make.jl"))
+    @test isfile(joinpath(root, "docs", "src", "index.md"))
+    @test isfile(joinpath(root, "docs", "Project.toml"))
 end
