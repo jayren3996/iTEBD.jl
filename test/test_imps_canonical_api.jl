@@ -93,7 +93,7 @@ end
     G[2, 2, 2] = 1
     psi_default = iMPS([copy(G)], [ones(2)], 1)
 
-    @test_logs (:warn,) (:warn, r"without symmetry-sector selection") (:warn,) (:warn,) canonical!(psi_default; noninjective=:warn)
+    @test_logs (:warn, r"without symmetry-sector selection") (:warn,) (:warn,) canonical!(psi_default; noninjective=:warn)
     _assert_finite_nonempty(psi_default)
 
     psi_auto = iMPS([copy(G)], [ones(2)], 1)

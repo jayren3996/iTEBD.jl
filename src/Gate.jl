@@ -412,9 +412,12 @@ function _materialize_trotter_gates(
     stages::AbstractVector{<:Tuple{Int, <:Real}};
     evolution::Symbol=:real
 )
-    # Infer the matrix element type from the first Hamiltonian term
+    # Infer the matrix element type from the first Hamiltonian term,
+    # but promote to complex for real-time evolution.
     T = if !isempty(layers) && !isempty(first(layers))
-        eltype(first(first(layers))[1])
+        htype = eltype(first(first(layers))[1])
+        prefactor = _trotter_time_prefactor(dt, 1.0, evolution)
+        promote_type(htype, typeof(prefactor))
     else
         ComplexF64
     end
