@@ -31,10 +31,10 @@ Notes:
 - Many internal contractions operate directly on the stored tensors `B_i`
   rather than reconstructing bare Vidal tensors first.
 """
-struct iMPS{T<:Number}
+struct iMPS{T<:Number, S<:Real}
     Γ::Vector{Array{T, 3}}
-    λ::Vector{Vector{Float64}}
-    n::Int64
+    λ::Vector{Vector{S}}
+    n::Int
 end
 #---------------------------------------------------------------------------------------------------
 """
@@ -79,9 +79,21 @@ function iMPS(
 )
     n = length(Γs)
     Γ = Array{T}.(Γs)
-    λ = [ones(Float64, size(Γi, 3)) for Γi in Γs]
+    λ = [ones(_schmidt_value_type(T), size(Γi, 3)) for Γi in Γs]
     ψ = iMPS(Γ, λ, n)
     return renormalize ? canonical!(ψ) : ψ
+end
+
+# Helper to get the appropriate real type for Schmidt values
+_schmidt_value_type(::Type{T}) where T = real(T)
+
+# Type-stable override for _support_tol (the generic method in TensorAlgebra.jl
+# hard-codes Float64).  This more-specific method takes precedence for real
+# Schmidt-value vectors and preserves the element type.
+function _support_tol(vals::AbstractVector{S}; atol::Real=ZEROTOL, rtol::Real=sqrt(eps(S))) where {S<:Real}
+    mags = abs.(vals)
+    scale = isempty(mags) ? zero(S) : maximum(mags)
+    return max(S(atol), S(rtol) * max(scale, one(S)))
 end
 #---------------------------------------------------------------------------------------------------
 """
@@ -139,8 +151,7 @@ function rand_iMPS(
     dim::Integer
 )
     Γ = [rand(T, dim, d, dim) for i=1:n]
-    λ = [ones(dim) for i=1:n]
-    iMPS(Γ, λ, n)
+    iMPS(T, Γ; renormalize=true)
 end
 rand_iMPS(n, d, dim) = rand_iMPS(Float64, n, d, dim)
 #---------------------------------------------------------------------------------------------------
@@ -175,24 +186,39 @@ function product_iMPS(
     T::DataType,
     v::AbstractVector{<:AbstractVector{<:Number}}
 )
+    !isempty(v) || throw(ArgumentError("vectors must contain at least one local state"))
     n = length(v)
     d = length(v[1])
+    d > 0 || throw(ArgumentError("local state vectors must be nonempty"))
     Γ = [zeros(T, 1, d, 1) for i=1:n]
-    λ = [ones(1) for i=1:n]
+    λ = [ones(_schmidt_value_type(T), 1) for i=1:n]
     for i=1:n
-        Γ[i][1,:,1] .= v[i]
+        length(v[i]) == d || throw(ArgumentError("all local state vectors must have the same length"))
+        vec = T.(v[i])
+        all(isfinite, vec) || throw(ArgumentError("local state vectors must contain only finite values"))
+        nrm = norm(vec)
+        isfinite(nrm) && nrm > 0 || throw(ArgumentError("local state vectors must be nonzero"))
+        Γ[i][1,:,1] .= vec ./ nrm
     end
-    iMPS(Γ, λ, n)
+    ψ = iMPS(Γ, λ, n)
+    canonical!(ψ)
 end
 #---------------------------------------------------------------------------------------------------
 function product_iMPS(v::AbstractVector{<:AbstractVector{<:Number}})
-    T = promote_type(eltype.(v)...)
+    T = float(promote_type(eltype.(v)...))
     product_iMPS(T, v)
 end
 #---------------------------------------------------------------------------------------------------
 export canonical!
 """
-    canonical!(ψ; maxdim=MAXDIM, cutoff=SVDTOL, renormalize=true)
+    canonical!(
+        ψ;
+        maxdim=MAXDIM,
+        cutoff=SVDTOL,
+        renormalize=true,
+        noninjective=:warn,
+        symmetry_break=:none,
+    )
 
 Bring `ψ` to Schmidt-canonical form in place.
 
@@ -205,8 +231,8 @@ Convention note:
 - Calling `ψ[i]` returns the bare Vidal tensor `Γ_i` together with `λ[i]`
   by dividing out the absorbed right Schmidt values.
 
-This routine assumes the state is injective and is the standard
-canonicalization path used by the package.
+This routine uses the standard injective canonicalization path, with a
+conservative warning/sector-selection policy for likely non-injective inputs.
 
 Parameters:
 - `ψ`
@@ -221,6 +247,13 @@ Keyword arguments:
   canonicalization.
 - `renormalize=true`
   If `true`, renormalize the retained Schmidt values after truncation.
+- `noninjective=:warn`
+  Policy for likely non-injective or degenerate transfer spectra. Supported
+  values are `:warn`, `:error`, and `:ignore`.
+- `symmetry_break=:none`
+  Do not run the explicit deterministic sector-selection heuristic for likely
+  non-injective tensors. Use `:auto` to enable that heuristic for simple
+  block-diagonal/GHZ-like tensors.
 
 Returns:
 - The same object `ψ`, mutated in place.
@@ -239,8 +272,36 @@ canonical!(psi; maxdim=4, cutoff=1e-12, renormalize=true)
 Gamma1, lambda1 = psi[1]
 ```
 """
-function canonical!(ψ::iMPS; maxdim=MAXDIM, cutoff=SVDTOL, renormalize=true)
-    ψ.Γ[:], ψ.λ[:] = schmidt_canonical(ψ.Γ, ψ.λ[end]; maxdim, cutoff, renormalize)
+function _validate_canonical_options(maxdim, cutoff, noninjective::Symbol, symmetry_break::Symbol)
+    maxdim isa Integer || throw(ArgumentError("maxdim must be an integer"))
+    maxdim > 0 || throw(ArgumentError("maxdim must be positive"))
+    cutoff isa Real || throw(ArgumentError("cutoff must be real"))
+    isfinite(cutoff) && cutoff >= 0 || throw(ArgumentError("cutoff must be finite and non-negative"))
+    noninjective in (:warn, :error, :ignore) ||
+        throw(ArgumentError("noninjective must be one of :warn, :error, or :ignore"))
+    symmetry_break in (:auto, :none) ||
+        throw(ArgumentError("symmetry_break must be one of :auto or :none"))
+    return nothing
+end
+
+function canonical!(
+    ψ::iMPS;
+    maxdim=MAXDIM,
+    cutoff=SVDTOL,
+    renormalize=true,
+    noninjective::Symbol=:warn,
+    symmetry_break::Symbol=:none,
+)
+    _validate_canonical_options(maxdim, cutoff, noninjective, symmetry_break)
+    ψ.Γ[:], ψ.λ[:] = schmidt_canonical(
+        ψ.Γ,
+        ψ.λ[end];
+        maxdim,
+        cutoff,
+        renormalize,
+        noninjective,
+        symmetry_break,
+    )
     return ψ
 end
 
@@ -272,10 +333,19 @@ Notes:
   Schmidt values.
 - Use `ψ.Γ[i]` directly if you want the stored right-canonical tensor instead.
 """
-function getindex(mps::iMPS, i::Integer)
+function getindex(mps::iMPS{T,S}, i::Integer) where {T,S}
     i = mod(i-1, mps.n) + 1
-    Γ, λ = copy(mps.Γ[i]), mps.λ[i]
-    tensor_rmul!(Γ, 1 ./ λ)
+    Γ = copy(mps.Γ[i])
+    λ = mps.λ[i]
+    # Divide out the right Schmidt values in-place, avoiding the allocation
+    # of a full reciprocal vector.
+    β = size(Γ, 3)
+    Γ_reshaped = reshape(Γ, :, β)
+    tol = _support_tol(λ; atol=ZEROTOL, rtol=zero(S))
+    for j in 1:β
+        scale = abs(λ[j]) > tol ? inv(λ[j]) : zero(S)
+        @inbounds Γ_reshaped[:, j] .*= scale
+    end
     Γ, λ
 end
 #---------------------------------------------------------------------------------------------------
@@ -372,7 +442,8 @@ val = expect(psi, kron(Z, Z), 1, 2)
 ```
 """
 function expect(ψ::iMPS, O::AbstractMatrix, i::Integer, j::Integer)
-    Γ = ψ.Γ[j>=i ? (i:j) : [i:ψ.n; 1:j]]
+    inds = j >= i ? collect(i:j) : [i:ψ.n; 1:j]
+    Γ = ψ.Γ[inds]
     λl = ψ.λ[mod(i-2,ψ.n)+1]
     ocontract(Γ, O, λl) |> real
 end

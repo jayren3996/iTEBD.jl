@@ -2,11 +2,11 @@ module iTEBD
 #---------------------------------------------------------------------------------------------------
 # CONSTANTS
 #---------------------------------------------------------------------------------------------------
-const MAXDIM = 50
-const SVDTOL = 1e-12
-const SORTTOL = 1e-3
-const ZEROTOL = 1e-20
-const KRLOV_POWER = 100
+const MAXDIM::Int = 50
+const SVDTOL::Float64 = 1e-12
+const SORTTOL::Float64 = 1e-3
+const ZEROTOL::Float64 = 1e-20
+const KRLOV_POWER::Int = 100
 #---------------------------------------------------------------------------------------------------
 # INCLUDE
 #---------------------------------------------------------------------------------------------------
@@ -18,6 +18,7 @@ import LinearAlgebra: conj
 include("TensorAlgebra.jl")
 include("Contractions.jl")
 include("iMPS.jl")
+include("ITensors.jl")
 include("Gate.jl")
 include("Schmidt.jl")
 include("Krylov.jl")

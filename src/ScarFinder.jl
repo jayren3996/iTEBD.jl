@@ -133,7 +133,7 @@ function _truncate_unitcell!(ψ::iMPS, χ::Integer; cutoff::Real=SVDTOL)
     Γ = tensor_group(ψ.Γ)
     A, λ = schmidt_canonical(Γ, ψ.λ[end]; maxdim=χ, cutoff, renormalize=true)
     tensor_lmul!(λ, A)
-    Γs, λs = tensor_decomp!(A, λ, ψ.n; maxdim=χ, cutoff, renormalize=true)
+    Γs, λs = tensor_decomp!(A, λ, ψ.n; maxdim=χ, svd_min=cutoff, renormalize=true)
     push!(λs, λ)
     ψ.Γ .= Γs
     ψ.λ .= λs
