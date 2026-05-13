@@ -109,7 +109,6 @@ function krylov_eigen(
 )
     n = size(KL, 1)
     f = ρ -> kraus(KL, KU, reshape(ρ, n, n); dir)
-    n = size(KL, 1)
     T = promote_type(eltype(KL), eltype(KU))
     v0 = if isnothing(ρ0)
         reshape(diagm(ones(T, n)), n^2)
@@ -117,12 +116,25 @@ function krylov_eigen(
         reshape(ρ0, n^2)
     end
 
-    vals, vecs = eigsolve(f, v0, 1, :LM; ishermitian=false)
-    if real(tr(vecs[1])) < 0
-        vals[1], -reshape(vecs[1], n,n)
-    else
-        vals[1], reshape(vecs[1], n,n)
+    vals, vecs, info = eigsolve(f, v0, 1, :LM; ishermitian=false)
+    if info.converged < 1
+        @warn "Krylov eigen solver did not converge" info
     end
+    ρ = reshape(vecs[1], n, n)
+    # Enforce positive trace
+    if real(tr(ρ)) < 0
+        ρ = -ρ
+    end
+    # Symmetrize and enforce positive semidefiniteness
+    ρ = (ρ + ρ') / 2
+    min_eig = minimum(real.(eigvals(Hermitian(ρ))))
+    if min_eig < -1e-10
+        @warn "Fixed-point matrix has negative eigenvalues (min=$min_eig); projecting to PSD cone"
+        evals, evecs = eigen(Hermitian(ρ))
+        evals_clipped = max.(evals, 0.0)
+        ρ = evecs * Diagonal(evals_clipped) * evecs'
+    end
+    vals[1], ρ
 end
 #---------------------------------------------------------------------------------------------------
 """
@@ -152,9 +164,9 @@ function steady_mat(K::AbstractArray{<:Number, 3}; dir::Symbol=:r)
     # and running full eigen becomes O(a^6) time and O(a^4) memory.
     # When the physical dimension b is also large (grouped tensors), the condition
     # b > a used to force dense mode. Now we prefer Krylov for a > 32 regardless.
-    use_dense = (a <= 8) || (a <= 32 && b <= a)
+    use_dense = a^2 <= 4096
     vec = if use_dense
-        m = kraus_mat(K, conj(K); dir) 
+        m = kraus_mat(K, conj(K); dir)
         vals, vecs = eigen(m)
         idx = argmax(abs.(vals))
         v = reshape(vecs[:,idx], a, a)
@@ -162,6 +174,8 @@ function steady_mat(K::AbstractArray{<:Number, 3}; dir::Symbol=:r)
     else
         krylov_eigen(K, conj(K); dir)[2]
     end
+    # Explicitly symmetrize before wrapping in Hermitian
+    vec = (vec + vec') / 2
     return Hermitian(vec)
 end
 #---------------------------------------------------------------------------------------------------
@@ -190,7 +204,9 @@ function fixed_point_mat(
     dir::Symbol=:r
 )
     α = size(K, 1)
-    ρ0 = rand(ComplexF64, α, α) |> Hermitian |> Array
-    _, vec = krylov_eigen(K, conj(K), ρ0;dir)
+    ρ0 = rand(ComplexF64, α, α)
+    ρ0 = ρ0 * ρ0'
+    ρ0 /= tr(ρ0)
+    _, vec = krylov_eigen(K, conj(K), ρ0; dir)
     vec |> Hermitian
 end

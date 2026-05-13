@@ -33,9 +33,13 @@ function entanglement_entropy(
     cutoff::AbstractFloat=1e-10
 )
     EE = 0.0
-    for si in S
-        if si > cutoff
-            EE -= si * log(si)
+    total = sum(S)
+    if total > 0 && isfinite(total)
+        for si in S
+            p = si / total
+            if p > cutoff
+                EE -= p * log(p)
+            end
         end
     end
     EE
@@ -79,9 +83,13 @@ function natural_bonddim(
     else
         log(sum(p -> p^q, probs)) / (1 - q)
     end
-    rank = exp(entropy)
+    rank = exp(min(entropy, log(prevfloat(typemax(Float64)))))
+    if !isfinite(rank)
+        rank = prevfloat(typemax(Float64))
+    end
     tail_weight = 1 - first(probs)
-    rank * (1 + alpha * tail_weight)
+    result = rank * (1 + alpha * tail_weight)
+    isfinite(result) ? result : prevfloat(typemax(Float64))
 end
 
 """
@@ -97,13 +105,18 @@ function adaptive_bonddim(
     maxdim::Integer=MAXDIM,
     q::Real=1.0,
     alpha::Real=0.1,
-    cutoff::Real=1e-12
+    cutoff::Real=1e-12,
+    ratchet::Bool=true
 )
     mindim > 0 || throw(ArgumentError("mindim must be positive"))
     maxdim >= mindim || throw(ArgumentError("maxdim must be at least mindim"))
 
     raw = natural_bonddim(λ; q, alpha, cutoff)
-    target = max(previous, mindim, ceil(Int, raw))
+    target = if ratchet
+        max(previous, mindim, ceil(Int, raw))
+    else
+        max(mindim, ceil(Int, raw))
+    end
     min(maxdim, target)
 end
 
@@ -147,14 +160,23 @@ Notes:
 """
 function inner_product(T)
     trmat = trm(T)
-    val, vec = eigsolve(trmat)
-    abs(val[1])
+    _dominant_eigenvalue(trmat)
 end
 #---------------------------------------------------------------------------------------------------
 inner_product(T::iMPS) = inner_product(T, T)
 #---------------------------------------------------------------------------------------------------
 function inner_product(T1, T2)
     trmat = gtrm(T1, T2)
-    val, vec = eigsolve(trmat)
-    abs(val[1])
+    _dominant_eigenvalue(trmat)
+end
+
+function _dominant_eigenvalue(trmat::AbstractMatrix)
+    if size(trmat, 1) <= 4096
+        vals, vecs = eigen(trmat)
+        idx = argmax(abs.(vals))
+        abs(vals[idx])
+    else
+        val, vec = eigsolve(trmat, 1, :LM; ishermitian=false)
+        abs(val[1])
+    end
 end
