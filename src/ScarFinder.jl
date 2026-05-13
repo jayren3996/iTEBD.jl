@@ -67,8 +67,23 @@ Notes:
 function _evolve_uniform!(ψ::iMPS, G::AbstractMatrix; span::Integer, maxdim::Integer=MAXDIM)
     span >= 1 || throw(ArgumentError("span must be positive"))
     offset = span - 1
-    for i in 1:ψ.n
-        applygate!(ψ, G, i, mod(i + offset - 1, ψ.n) + 1; maxdim)
+    # Optimization: for translationally invariant states, apply once and copy.
+    # This reduces O(n) gate applications to O(1) when all sites are identical.
+    # Note: truncation may break exact translational invariance, so this is
+    # guarded by an approximate equality check.
+    is_uniform = ψ.n > 1 &&
+                 all(ψ.λ[1] ≈ ψ.λ[i] for i in 2:ψ.n) &&
+                 all(ψ.Γ[1] ≈ ψ.Γ[i] for i in 2:ψ.n)
+    if is_uniform
+        applygate!(ψ, G, 1, mod(1 + offset - 1, ψ.n) + 1; maxdim)
+        for i in 2:ψ.n
+            ψ.Γ[i] = copy(ψ.Γ[1])
+            ψ.λ[i] = copy(ψ.λ[1])
+        end
+    else
+        @inbounds for i in 1:ψ.n
+            applygate!(ψ, G, i, mod(i + offset - 1, ψ.n) + 1; maxdim)
+        end
     end
     return ψ
 end
@@ -96,6 +111,25 @@ Notes:
   tensors, and finishes with a canonicalization pass.
 """
 function _truncate_unitcell!(ψ::iMPS, χ::Integer; cutoff::Real=SVDTOL)
+    # Size guard: avoid exponential memory blowup from grouping the entire unit cell.
+    # The grouped tensor has shape (χ, d^n, χ), so its physical dimension d^n
+    # grows exponentially with the unit-cell length n.
+    d = size(ψ.Γ[1], 2)
+    grouped_phys_dim = d^ψ.n
+    if ψ.n > 6 || grouped_phys_dim > 1_000_000
+        @warn "Large unit cell detected (n=$(ψ.n), grouped physical dim=$grouped_phys_dim). " *
+              "Falling back to site-by-site sweep compression to avoid exponential memory cost."
+        # Fallback: apply identity gate to each bond sequentially.
+        # This groups only two sites at a time, truncates, and decomposes back,
+        # achieving O(n) memory cost instead of O(d^n).
+        I_gate = Matrix{eltype(ψ.Γ[1])}(I, d^2, d^2)
+        for i in 1:ψ.n
+            j = mod(i, ψ.n) + 1
+            applygate!(ψ, I_gate, i, j; maxdim=χ, cutoff, renormalize=true)
+        end
+        return ψ
+    end
+
     Γ = tensor_group(ψ.Γ)
     A, λ = schmidt_canonical(Γ, ψ.λ[end]; maxdim=χ, cutoff, renormalize=true)
     tensor_lmul!(λ, A)
@@ -154,7 +188,11 @@ Notes:
 """
 function energy_density(ψ::iMPS, h::AbstractMatrix; span::Integer=operator_span(ψ, h))
     offset = span - 1
-    sum(expect(ψ, h, i, mod(i + offset - 1, ψ.n) + 1) for i in 1:ψ.n) / ψ.n
+    E = 0.0
+    for i in 1:ψ.n
+        E += expect(ψ, h, i, mod(i + offset - 1, ψ.n) + 1)
+    end
+    return E / ψ.n
 end
 
 """
@@ -259,19 +297,24 @@ function _energy_fix!(
     α::Real=0.1,
     maxstep::Integer=50
 )
-    dE = energy_density(ψ, h; span) - target
+    E = energy_density(ψ, h; span)
+    dE = E - target
     abs(dE) < tol && return ψ
     dτ = α * dE
-    G = exp(-dτ * h)
+    # Precompute eigendecomposition of h once, reuse for all exp(c*h) calls.
+    # This avoids repeated dense matrix exponentiation inside the loop.
+    eh = eigen(Hermitian(h))
+    exp_h(c) = eh.vectors * Diagonal(exp.(c * eh.values)) * eh.vectors'
+    G = exp_h(-dτ)
     for _ in 1:maxstep
         _evolve_uniform!(ψ, G; span, maxdim=χ)
         dE2 = energy_density(ψ, h; span) - target
         if dE * dE2 < 0
             k = abs(dE2) / (abs(dE) + abs(dE2))
-            _evolve_uniform!(ψ, exp(k * dτ * h); span, maxdim=χ)
+            _evolve_uniform!(ψ, exp_h(k * dτ); span, maxdim=χ)
             return ψ
         elseif abs(dE2) > abs(dE)
-            _evolve_uniform!(ψ, exp(dτ * h); span, maxdim=χ)
+            _evolve_uniform!(ψ, exp_h(dτ); span, maxdim=χ)
             return ψ
         end
         dE = dE2
@@ -304,9 +347,25 @@ Notes:
 function _minimize_on_trajectory!(f, step!, ψ::iMPS, samples::Integer)
     ψtrial = deepcopy(ψ)
     values = zeros(Float64, samples)
+    best_val = Inf
+    best_idx = 0
+    no_improve_count = 0
+    early_exit_window = max(1, samples ÷ 10)
     for i in 1:samples
         step!(ψtrial)
         values[i] = f(ψtrial)
+        if values[i] < best_val - sqrt(eps(Float64))
+            best_val = values[i]
+            best_idx = i
+            no_improve_count = 0
+        else
+            no_improve_count += 1
+            if no_improve_count >= early_exit_window
+                # Early exit: objective has not improved for a while
+                resize!(values, i)
+                break
+            end
+        end
     end
     _, index = findmin(values)
     for _ in 1:index
@@ -564,7 +623,7 @@ used in the reference `ScarFinder` scripts.
 Keyword arguments:
 - `refine=true`: enable the minimum-entanglement trajectory scan.
 - `refine_dt=dt/10`: time step used during the refinement scan.
-- `refine_step=1000`: number of trial points in the refinement scan.
+- `refine_step=100`: number of trial points in the refinement scan.
 
 All keyword arguments accepted by `scarfinder_step!` are also supported.
 
@@ -587,7 +646,7 @@ Keyword arguments:
   Whether to perform the post-processing scan for a minimum-entanglement point.
 - `refine_dt=dt / 10`
   Microscopic step used during that refinement scan.
-- `refine_step=1000`
+- `refine_step=100`
   Number of trial points considered in the refinement scan.
 - `kwargs...`
   Additional keyword arguments forwarded to [`scarfinder_step!`](@ref).
@@ -603,7 +662,7 @@ function scarfinder!(
     N::Integer;
     refine::Bool=true,
     refine_dt::Real=dt / 10,
-    refine_step::Integer=1000,
+    refine_step::Integer=100,
     kwargs...
 )
     for _ in 1:N
@@ -627,7 +686,7 @@ for example `G = P * U` in constrained or projected dynamics.
 
 Keyword arguments:
 - `refine=true`: enable the minimum-entanglement trajectory scan.
-- `refine_step=1000`: number of trial points in the refinement scan.
+- `refine_step=100`: number of trial points in the refinement scan.
 
 All keyword arguments accepted by `scarfinder_step!(ψ, G, χ; ...)` are also supported.
 The return value is `ψ`, mutated in place.
@@ -645,7 +704,7 @@ Parameters:
 Keyword arguments:
 - `refine=true`
   Whether to perform the minimum-entanglement refinement scan.
-- `refine_step=1000`
+- `refine_step=100`
   Number of trial points used in that scan.
 - `kwargs...`
   Additional keyword arguments forwarded to `scarfinder_step!(ψ, G, χ; ...)`.
@@ -659,7 +718,7 @@ function scarfinder!(
     χ::Integer,
     N::Integer;
     refine::Bool=true,
-    refine_step::Integer=1000,
+    refine_step::Integer=100,
     kwargs...
 )
     for _ in 1:N
@@ -683,7 +742,7 @@ be measured using a Hamiltonian density `h`.
 
 Keyword arguments:
 - `refine=true`: enable the minimum-entanglement trajectory scan.
-- `refine_step=1000`: number of trial points in the refinement scan.
+- `refine_step=100`: number of trial points in the refinement scan.
 
 All keyword arguments accepted by `scarfinder_step!(ψ, G, h, χ; ...)` are also supported.
 The return value is `ψ`, mutated in place.
@@ -703,7 +762,7 @@ Parameters:
 Keyword arguments:
 - `refine=true`
   Whether to perform the minimum-entanglement refinement scan.
-- `refine_step=1000`
+- `refine_step=100`
   Number of trial points used in that scan.
 - `kwargs...`
   Additional keyword arguments forwarded to
@@ -719,7 +778,7 @@ function scarfinder!(
     χ::Integer,
     N::Integer;
     refine::Bool=true,
-    refine_step::Integer=1000,
+    refine_step::Integer=100,
     kwargs...
 )
     for _ in 1:N
