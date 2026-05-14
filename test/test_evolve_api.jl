@@ -121,6 +121,17 @@ end
     @test err_fourth_opt < err_second
 end
 
+@testset "TROTTER_IMAGINARY_PROMOTES_ALL_LAYER_ELEMENT_TYPES" begin
+    X = Float64[0 1; 1 0]
+    Y = ComplexF64[0 -im; im 0]
+    layers = [[(X, 1, 1)], [(Y, 1, 1)]]
+
+    gates = trotter_gates(layers, 0.1; evolution=:imaginary)
+
+    @test eltype(first(gates)[1]) <: Complex
+    @test all(gate -> eltype(gate[1]) <: Complex, gates)
+end
+
 @testset "TROTTER_VALIDATION" begin
     X = [0.0 1.0; 1.0 0.0]
     layers2 = [[(X, 1, 1)], [(X, 1, 1)]]
@@ -145,6 +156,16 @@ end
     @test all(λ -> all(λ .>= 0), psi.λ)
     @test all(λ -> isapprox(norm(λ), 1.0; atol=1e-8), psi.λ)
     @test all(Γ -> size(Γ, 1) == size(Γ, 3), psi.Γ)
+end
+
+@testset "ONE_SITE_ADAPTIVE_EVOLVE_DOES_NOT_SHRINK_UNRELATED_BONDS" begin
+    X = ComplexF64[0 1; 1 0]
+    psi = iTEBD.rand_iMPS(ComplexF64, 3, 2, 3)
+    before_lengths = length.(psi.λ)
+
+    evolve!(psi, [(X, 1, 1)], 1; chi_policy=:adaptive, maxdim=1, cutoff=0.0)
+
+    @test length.(psi.λ)[2:3] == before_lengths[2:3]
 end
 
 @testset "GATE_FUSION_SAME_BOND" begin

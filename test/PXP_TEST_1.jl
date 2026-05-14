@@ -1,12 +1,11 @@
-include("../src/iTEBD.jl")
-
-using .iTEBD
 using DelimitedFiles
+using iTEBD
 using LinearAlgebra
 using Printf
 using Test
 
 const SMOKE_MODE = "--smoke" in ARGS
+const ERROR_TOL = SMOKE_MODE ? 0.1 : 2.0
 const DT = 0.1
 const SUB_DIV = SMOKE_MODE ? 1 : 5
 const BOND = SMOKE_MODE ? 16 : 400
@@ -58,8 +57,8 @@ z2_entropy = _run_series!(z2_mps, gate, length(z2_entr))
 z1_error = norm(z1_entropy - z1_entr)
 z2_error = norm(z2_entropy - z2_entr)
 
-@test isfinite(z1_error)
-@test isfinite(z2_error)
+@test z1_error < ERROR_TOL
+@test z2_error < ERROR_TOL
 
 println("Z1 error: $(z1_error)")
 println("Z2 error: $(z2_error)")

@@ -5,6 +5,7 @@ using Test
 using iTEBD
 
 const SMOKE_MODE = "--smoke" in ARGS
+const ERROR_TOL = SMOKE_MODE ? 0.1 : 2.0
 const BOND = SMOKE_MODE ? 16 : 400
 const DT = 0.1 / (SMOKE_MODE ? 1 : 5)
 const SUB_DIV = SMOKE_MODE ? 1 : 5
@@ -48,5 +49,5 @@ for i in 2:length(reference_entropy)
 end
 
 error = norm(entropy - reference_entropy)
-@test isfinite(error)
+@test error < ERROR_TOL
 println("Error = $(error)")

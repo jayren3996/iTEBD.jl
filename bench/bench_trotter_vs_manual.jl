@@ -219,9 +219,26 @@ function print_rows(rows)
     end
 end
 
+function validate_smoke_rows(rows)
+    SMOKE_MODE || return nothing
+    for row in rows
+        if !isnothing(row.agreement)
+            row.agreement > 0.95 ||
+                error("smoke agreement check failed for $(row.case)/$(row.variant): $(row.agreement)")
+        end
+        if !isnothing(row.error)
+            isfinite(row.error) && row.error < 1.0 ||
+                error("smoke exact-error check failed for $(row.case)/$(row.variant): $(row.error)")
+        end
+    end
+    println("smoke validation passed")
+    return nothing
+end
+
 function main()
     rows = vcat(aklt_rows(), realtime_rows())
     print_rows(rows)
+    validate_smoke_rows(rows)
 end
 
 main()

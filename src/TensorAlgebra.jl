@@ -302,6 +302,21 @@ function _iterative_svd_trim(
     end
 
     S = svals[1:len]
+    if any(s -> 0 < s <= ZEROTOL, S)
+        res = _svd_with_fallback(mat)
+        vals = res.S
+        dense_len = min(maxdim, count(>=(svd_min), vals))
+        if !isempty(vals)
+            dense_len = max(1, dense_len)
+        end
+        U = res.U[:, 1:dense_len]
+        Sdense = vals[1:dense_len]
+        V = res.Vt[1:dense_len, :]
+        if renormalize
+            _renormalize_singular_values!(Sdense)
+        end
+        return U, Sdense, V
+    end
 
     if m <= n
         # U vectors are the eigenvectors of A*A'
@@ -309,7 +324,7 @@ function _iterative_svd_trim(
         # V = S^{-1} * U' * A
         V_mat = similar(mat, len, n)
         for i in 1:len
-            if S[i] > ZEROTOL
+            if S[i] > 0
                 V_mat[i, :] = (U_mat[:, i]' * mat) / S[i]
             else
                 V_mat[i, :] .= zero(T)
@@ -321,7 +336,7 @@ function _iterative_svd_trim(
         # U = A * V * S^{-1}
         U_mat = similar(mat, m, len)
         for i in 1:len
-            if S[i] > ZEROTOL
+            if S[i] > 0
                 U_mat[:, i] = (mat * Vt_mat[:, i]) / S[i]
             else
                 U_mat[:, i] .= zero(T)
@@ -430,9 +445,13 @@ function _discarded_weight_choice(
     maxdim >= mindim || throw(ArgumentError("maxdim must be at least mindim"))
     truncerr >= 0 || throw(ArgumentError("truncerr must be non-negative"))
     svd_min >= 0 || throw(ArgumentError("svd_min must be non-negative"))
+    mindim_i = Int(mindim)
+    maxdim_i = Int(maxdim)
+    truncerr_f = Float64(truncerr)
+    svd_min_f = Float64(svd_min)
+    target_slack = sqrt(eps(Float64))
 
-    vals = Float64.(abs.(s))
-    n = length(vals)
+    n = length(s)
     n == 0 && return (
         chi_req=0,
         chi_keep=0,
@@ -444,8 +463,10 @@ function _discarded_weight_choice(
         largest_discarded_sv=0.0,
     )
 
-    weights = Float64.(abs2.(vals))
-    total_weight = sum(weights)
+    total_weight = 0.0
+    for si in s
+        total_weight += Float64(abs2(si))
+    end
     total_weight > 0 || return (
         chi_req=1,
         chi_keep=1,
@@ -453,38 +474,52 @@ function _discarded_weight_choice(
         discarded_weight=0.0,
         saturated=false,
         target_met=true,
-        smallest_kept_sv=vals[1],
-        largest_discarded_sv=n > 1 ? vals[2] : 0.0,
+        smallest_kept_sv=Float64(abs(s[1])),
+        largest_discarded_sv=n > 1 ? Float64(abs(s[2])) : 0.0,
     )
 
-    probs = weights ./ total_weight
-    cumulative = cumsum(probs)
+    probs = Vector{Float64}(undef, n)
+    chi_by_floor = 0
+    use_floor = svd_min_f > 0
 
     chi_req = n
+    cumulative = 0.0
     for χ in 1:n
-        discarded_weight = χ < n ? 1.0 - cumulative[χ] : 0.0
-        if discarded_weight <= truncerr + sqrt(eps(Float64))
+        @inbounds si = s[χ]
+        @inbounds probs[χ] = Float64(abs2(si)) / total_weight
+        if use_floor && abs(si) >= svd_min_f
+            chi_by_floor += 1
+        end
+    end
+
+    for χ in 1:n
+        @inbounds cumulative += probs[χ]
+        discarded_weight = χ < n ? 1.0 - cumulative : 0.0
+        if discarded_weight <= truncerr_f + target_slack
             chi_req = χ
             break
         end
     end
 
-    chi_keep = min(n, clamp(chi_req, mindim, maxdim))
-    if svd_min > 0
-        chi_by_floor = count(>=(svd_min), vals)
-        chi_keep = min(chi_keep, max(chi_by_floor, min(mindim, n)))
+    chi_keep = min(n, clamp(chi_req, mindim_i, maxdim_i))
+    if use_floor
+        chi_keep = min(chi_keep, max(chi_by_floor, min(mindim_i, n)))
     end
 
-    discarded_weight = chi_keep < n ? 1.0 - cumulative[chi_keep] : 0.0
+    kept_weight = 0.0
+    @inbounds for i in 1:chi_keep
+        kept_weight += probs[i]
+    end
+    discarded_weight = chi_keep < n ? 1.0 - kept_weight : 0.0
     (
         chi_req=chi_req,
         chi_keep=chi_keep,
         weights=probs,
         discarded_weight=discarded_weight,
-        saturated=chi_req > maxdim,
-        target_met=discarded_weight <= truncerr + sqrt(eps(Float64)),
-        smallest_kept_sv=vals[chi_keep],
-        largest_discarded_sv=chi_keep < n ? vals[chi_keep + 1] : 0.0,
+        saturated=chi_req > maxdim_i,
+        target_met=discarded_weight <= truncerr_f + target_slack,
+        smallest_kept_sv=Float64(abs(s[chi_keep])),
+        largest_discarded_sv=chi_keep < n ? Float64(abs(s[chi_keep + 1])) : 0.0,
     )
 end
 
@@ -496,6 +531,7 @@ function _svd_truncate_by_error(
     svd_min::Real=0.0,
     renormalize::Bool=false
 )
+    _finite_entries(mat, "SVD input matrix")
     res = _svd_with_fallback(mat)
     choice = _discarded_weight_choice(
         res.S;

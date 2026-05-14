@@ -10,5 +10,6 @@ manual pages such as [iMPS and Canonical Form](imps.md),
 
 ```@autodocs
 Modules = [iTEBD]
+Private = false
 Order = [:type, :function]
 ```

@@ -99,11 +99,37 @@ end
         return ψ0
     end
 
-    iTEBD._minimize_on_trajectory!(f, step!, ψ, length(values))
+    iTEBD._minimize_on_trajectory!(f, step!, ψ, length(values) - 1)
 
-    @test trial_steps[] == length(values)
+    @test trial_steps[] == length(values) - 1
     @test eval_count[] == length(values)
-    @test replay_steps[] == 11
+    @test replay_steps[] == 10
+end
+
+@testset "MINIMIZE_ON_TRAJECTORY_CONSIDERS_INITIAL_STATE" begin
+    ψ = product_iMPS(ComplexF64, [[1, 0]])
+    eval_count = Ref(0)
+    trial_steps = Ref(0)
+    replay_steps = Ref(0)
+
+    f = _ -> begin
+        eval_count[] += 1
+        eval_count[] == 1 ? 0.0 : 1.0
+    end
+    step! = ψ0 -> begin
+        if ψ0 === ψ
+            replay_steps[] += 1
+        else
+            trial_steps[] += 1
+        end
+        return ψ0
+    end
+
+    iTEBD._minimize_on_trajectory!(f, step!, ψ, 5)
+
+    @test eval_count[] == 6
+    @test trial_steps[] == 5
+    @test replay_steps[] == 0
 end
 
 # =============================================================================

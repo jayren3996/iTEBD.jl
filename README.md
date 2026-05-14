@@ -140,8 +140,9 @@ end
 
 ### Adaptive Bond-Dimension Heuristic
 
-If you want a non-decreasing bond dimension that adapts to the current Schmidt
-spectrum, you can now use the high-level evolution wrapper directly:
+Continuing from the AKLT setup above, if you want a non-decreasing bond
+dimension that adapts to the current Schmidt spectrum, you can use the
+high-level evolution wrapper directly:
 
 ```julia
 using iTEBD

@@ -1,4 +1,5 @@
 using Test
+import iTEBD
 using iTEBD: adaptive_bonddim, natural_bonddim
 
 @testset "NATURAL_BONDDIM" begin

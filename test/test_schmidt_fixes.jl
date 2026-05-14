@@ -43,6 +43,18 @@ using iTEBD
         @test res_large.count == 0
     end
 
+    @testset "TRANSFER_DEGENERACY_LARGE_STRUCTURAL_BLOCKS" begin
+        Γ = zeros(ComplexF64, 51, 1, 51)
+        Γ[1, 1, 1] = 1
+        Γ[51, 1, 51] = 1
+
+        res = iTEBD._transfer_degeneracy(Γ)
+
+        @test res.degenerate
+        @test res.count == 2
+        @test_throws ArgumentError iTEBD.schmidt_canonical(Γ, ones(51); noninjective=:error)
+    end
+
     @testset "TOLERANCE_HELPER_EXISTS_AND_CONSISTENT" begin
         # Issue 4: there should be a shared tolerance helper
         @test isdefined(iTEBD, :_tolerance)

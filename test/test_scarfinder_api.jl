@@ -13,8 +13,12 @@ using .TestUtils: bell_gate, pauli_matrices
 
     @test operator_span(ψ, P.Z) == 1
     @test operator_span(ψ, kron(P.Z, P.Z)) == 2
+    @test_throws ArgumentError operator_span(ψ, ones(ComplexF64, 1, 1))
     @test_throws ArgumentError operator_span(ψ, ones(ComplexF64, 2, 3))
     @test_throws ArgumentError operator_span(ψ, Matrix{ComplexF64}(I, 3, 3))
+
+    ψ_scalar = product_iMPS(ComplexF64, [[1]])
+    @test_throws ArgumentError operator_span(ψ_scalar, Matrix{ComplexF64}(I, 2, 2))
 end
 
 @testset "ENERGY_DENSITY_PRODUCT_STATE" begin
@@ -37,7 +41,16 @@ end
     G = Matrix{ComplexF64}(I, 2, 2)
 
     @test_throws ArgumentError iTEBD._evolve_uniform!(ψ, G; span=0)
+    @test_throws ArgumentError iTEBD._evolve_uniform!(ψ, Matrix{ComplexF64}(I, 8, 8); span=3)
     @test iTEBD._evolve_uniform!(ψ, G; span=1, maxdim=1) === ψ
+end
+
+@testset "SCARFINDER_TRUNCATE_ONE_SITE_UNITCELL" begin
+    ψ = product_iMPS(ComplexF64, [[1, 0]])
+
+    @test iTEBD._truncate_unitcell!(ψ, 1) === ψ
+    @test ψ.n == 1
+    @test length(ψ.λ[1]) == 1
 end
 
 @testset "SCARFINDER_UNIFORM_EVOLVE_SPAN2_MATCHES_EXPLICIT_SWEEP" begin

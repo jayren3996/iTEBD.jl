@@ -7,6 +7,8 @@ using Test
     for script in scripts
         path = joinpath(@__DIR__, script)
         output = read(`$(Base.julia_cmd()) --project=$root --compile=min --startup-file=no $path --smoke`, String)
-        @test occursin("error", lowercase(output))
+        matches = collect(eachmatch(r"(?m)(?:Z1 error|Z2 error|Error)(?: =|:) ([0-9.eE+-]+)", output))
+        @test !isempty(matches)
+        @test all(m -> parse(Float64, m.captures[1]) < 0.1, matches)
     end
 end

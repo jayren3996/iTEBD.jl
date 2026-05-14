@@ -9,6 +9,7 @@ const DOCS_SMOKE = get(ENV, "ITEBD_DOCS_SMOKE", "false") == "true"
 makedocs(;
     sitename="iTEBD.jl",
     modules=[iTEBD],
+    checkdocs=:exports,
     authors="jayren3996",
     format=Documenter.HTML(prettyurls=get(ENV, "CI", "false") == "true"),
     pages=[

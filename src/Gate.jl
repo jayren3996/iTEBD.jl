@@ -148,11 +148,12 @@ function applygate!(
 )
     svd_floor = _resolve_svd_min(svd_min, cutoff)
     _validate_truncation_args(maxdim, mindim, truncerr, svd_floor)
-    if isequal(i, j)
-        tensor_umul!(G, ψ.Γ[i])
+    i0, j0 = _normalize_gate_sites(ψ, i, j)
+    if isequal(i0, j0)
+        tensor_umul!(G, ψ.Γ[i0])
         if return_stats
             return ψ, (
-                support=(i, j),
+                support=(i0, j0),
                 bond_stats=Any[],
                 max_discarded_weight=0.0,
                 num_saturated=0,
@@ -160,9 +161,9 @@ function applygate!(
         end
         return ψ
     end
-    inds = _gate_indices(ψ, i, j)
+    inds = _gate_indices(ψ, i0, j0)
     Γs = ψ.Γ[inds]
-    λl = ψ.λ[mod(i-2,ψ.n)+1]
+    λl = ψ.λ[mod(i0-2,ψ.n)+1]
     if return_stats
         Γs, λs, bond_stats = tensor_applygate!(
             G,
@@ -188,12 +189,12 @@ function applygate!(
             renormalize,
         )
     end
-    push!(λs, ψ.λ[j])
-    for i in eachindex(inds) 
-        ψ.Γ[inds[i]] = Γs[i]
-        ψ.λ[inds[i]] = λs[i]
+    push!(λs, ψ.λ[j0])
+    for k in eachindex(inds)
+        ψ.Γ[inds[k]] = Γs[k]
+        ψ.λ[inds[k]] = λs[k]
     end
-    return_stats && return ψ, _gate_update_stats(i, j, bond_stats)
+    return_stats && return ψ, _gate_update_stats(i0, j0, bond_stats)
     return ψ
 end
 
@@ -208,7 +209,23 @@ Notes:
 - This is an internal helper used by [`evolve!`](@ref).
 """
 function _gate_indices(ψ::iMPS, i::Integer, j::Integer)
-    j > i ? (i:j) : [i:ψ.n; 1:j]
+    i0, j0 = _normalize_gate_sites(ψ, i, j)
+    i0 == j0 ? (i0:i0) : (j0 > i0 ? (i0:j0) : [i0:ψ.n; 1:j0])
+end
+
+function _normalize_gate_site(ψ::iMPS, i::Integer)
+    ψ.n > 0 || throw(ArgumentError("unit cell must contain at least one site"))
+    return mod(i - 1, ψ.n) + 1
+end
+
+function _normalize_gate_sites(ψ::iMPS, i::Integer, j::Integer)
+    return _normalize_gate_site(ψ, i), _normalize_gate_site(ψ, j)
+end
+
+function _updated_bond_indices(ψ::iMPS, i::Integer, j::Integer)
+    inds = collect(_gate_indices(ψ, i, j))
+    length(inds) <= 1 && return Int[]
+    return inds[1:end-1]
 end
 
 const _SUZUKI_FOURTH_P = 1 / (4 - 4^(1 / 3))
@@ -412,15 +429,12 @@ function _materialize_trotter_gates(
     stages::AbstractVector{<:Tuple{Int, <:Real}};
     evolution::Symbol=:real
 )
-    # Infer the matrix element type from the first Hamiltonian term,
-    # but promote to complex for real-time evolution.
-    T = if !isempty(layers) && !isempty(first(layers))
-        htype = eltype(first(first(layers))[1])
-        prefactor = _trotter_time_prefactor(dt, 1.0, evolution)
-        promote_type(htype, typeof(prefactor))
-    else
-        ComplexF64
+    prefactor = _trotter_time_prefactor(dt, 1.0, evolution)
+    htypes = Type[]
+    for layer in layers, term in layer
+        push!(htypes, eltype(term[1]))
     end
+    T = isempty(htypes) ? ComplexF64 : promote_type(htypes..., typeof(prefactor))
     cache = Dict{Tuple{Int, Int, Float64}, Matrix{T}}()
     gates = Tuple{Matrix{T}, Int, Int}[]
 
@@ -477,7 +491,8 @@ function _evolve_gate_sequence!(
         end
 
         if chi_policy === :adaptive
-            for bond in _gate_indices(ψ, i, j)
+            updated_bonds = _updated_bond_indices(ψ, i, j)
+            for bond in updated_bonds
                 χ = adaptive_bonddim(
                     χ,
                     ψ.λ[bond];
@@ -488,7 +503,9 @@ function _evolve_gate_sequence!(
                     cutoff=svd_floor,
                 )
             end
-            canonical!(ψ; maxdim=χ, cutoff=svd_floor, renormalize)
+            if !isempty(updated_bonds)
+                canonical!(ψ; maxdim=χ, cutoff=svd_floor, renormalize)
+            end
         end
     end
 

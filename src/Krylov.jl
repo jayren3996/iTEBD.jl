@@ -111,22 +111,35 @@ function krylov_eigen(
     dir::Symbol=:r,
     project_psd::Bool=false,
 )
-    n = size(KL, 1)
-    f = ρ -> kraus(KL, KU, reshape(ρ, n, n); dir)
+    input_shape, output_shape = _krylov_fixed_point_shapes(KL, KU; dir)
+    prod(input_shape) == prod(output_shape) ||
+        throw(ArgumentError(
+            "vectorized transfer map must be square; input shape $input_shape maps to output shape $output_shape"
+        ))
+    if project_psd && !_krylov_can_project_psd(KL, KU, input_shape, output_shape)
+        throw(ArgumentError("project_psd=true is only supported for square self-transfer fixed points"))
+    end
+    f = ρ -> vec(kraus(KL, KU, reshape(ρ, input_shape); dir))
     T = promote_type(eltype(KL), eltype(KU))
     v0 = if isnothing(ρ0)
-        reshape(diagm(ones(T, n)), n^2)
+        seed = zeros(T, input_shape)
+        for i in 1:min(input_shape...)
+            seed[i, i] = one(T)
+        end
+        vec(seed)
     else
-        reshape(ρ0, n^2)
+        size(ρ0) == input_shape ||
+            throw(ArgumentError("initial fixed-point matrix has shape $(size(ρ0)); expected $input_shape"))
+        vec(ρ0)
     end
 
     vals, vecs, info = eigsolve(f, v0, 1, :LM; ishermitian=false)
     if info.converged < 1
         @warn "Krylov eigen solver did not converge" info
     end
-    ρ = reshape(vecs[1], n, n)
+    ρ = reshape(vecs[1], input_shape)
     # Enforce positive trace
-    if real(tr(ρ)) < 0
+    if size(ρ, 1) == size(ρ, 2) && real(tr(ρ)) < 0
         ρ = -ρ
     end
     if project_psd
@@ -140,6 +153,28 @@ function krylov_eigen(
         end
     end
     vals[1], ρ
+end
+
+function _krylov_fixed_point_shapes(
+    KL::AbstractArray{<:Number, 3},
+    KU::AbstractArray{<:Number, 3};
+    dir::Symbol=:r
+)
+    size(KL, 2) == size(KU, 2) ||
+        throw(ArgumentError("transfer tensors must have matching physical dimensions"))
+    if dir == :r
+        return (size(KL, 3), size(KU, 3)), (size(KL, 1), size(KU, 1))
+    elseif dir == :l
+        return (size(KU, 1), size(KL, 1)), (size(KU, 3), size(KL, 3))
+    end
+    throw(ArgumentError("Illegal direction: $dir."))
+end
+
+function _krylov_can_project_psd(KL, KU, input_shape, output_shape)
+    input_shape == output_shape || return false
+    input_shape[1] == input_shape[2] || return false
+    size(KL) == size(KU) || return false
+    return all(kl == conj(ku) for (kl, ku) in zip(KL, KU))
 end
 #---------------------------------------------------------------------------------------------------
 """
@@ -211,7 +246,7 @@ function fixed_point_mat(
     α = size(K, 1)
     ρ0 = rand(ComplexF64, α, α)
     ρ0 = ρ0 * ρ0'
-    ρ0 /= tr(ρ0)
+    ρ0 ./= tr(ρ0)
     _, vec = krylov_eigen(K, conj(K), ρ0; dir, project_psd=true)
     vec |> Hermitian
 end

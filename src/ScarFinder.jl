@@ -31,6 +31,8 @@ function operator_span(ψ::iMPS, O::AbstractMatrix)
     size(O, 1) == size(O, 2) || throw(ArgumentError("operator must be square"))
     d = size(ψ.Γ[1], 2)
     dim = size(O, 1)
+    dim > 1 || throw(ArgumentError("scalar operators do not define a nonzero local support"))
+    d > 1 || throw(ArgumentError("operator dimension $dim is incompatible with local dimension $d"))
     span = 0
     block = 1
     while block < dim
@@ -39,6 +41,12 @@ function operator_span(ψ::iMPS, O::AbstractMatrix)
     end
     block == dim || throw(ArgumentError("operator dimension $dim is incompatible with local dimension $d"))
     return span
+end
+
+function _validate_local_span(ψ::iMPS, span::Integer; name::AbstractString="span")
+    span >= 1 || throw(ArgumentError("$name must be positive"))
+    span <= ψ.n || throw(ArgumentError("$name must not exceed the unit-cell length $(ψ.n)"))
+    return nothing
 end
 
 """
@@ -65,7 +73,7 @@ Notes:
 - This is an internal helper used by the ScarFinder routines.
 """
 function _evolve_uniform!(ψ::iMPS, G::AbstractMatrix; span::Integer, maxdim::Integer=MAXDIM)
-    span >= 1 || throw(ArgumentError("span must be positive"))
+    _validate_local_span(ψ, span)
     offset = span - 1
     # Optimization: for translationally invariant states, apply once and copy.
     # This reduces O(n) gate applications to O(1) when all sites are identical.
@@ -112,6 +120,14 @@ Notes:
   tensors, and finishes with a canonicalization pass.
 """
 function _truncate_unitcell!(ψ::iMPS, χ::Integer; cutoff::Real=SVDTOL)
+    if ψ.n == 1
+        Γ, λ = schmidt_canonical(ψ.Γ[1], ψ.λ[1]; maxdim=χ, cutoff, renormalize=true)
+        tensor_lmul!(λ, Γ)
+        ψ.Γ[1] = Γ
+        ψ.λ[1] = λ
+        return ψ
+    end
+
     # Size guard: avoid exponential memory blowup from grouping the entire unit cell.
     # The grouped tensor has shape (χ, d^n, χ), so its physical dimension d^n
     # grows exponentially with the unit-cell length n.
@@ -119,7 +135,7 @@ function _truncate_unitcell!(ψ::iMPS, χ::Integer; cutoff::Real=SVDTOL)
     grouped_phys_dim = d^ψ.n
     if ψ.n > 6 || grouped_phys_dim > 1_000_000
         @warn "Large unit cell detected (n=$(ψ.n), grouped physical dim=$grouped_phys_dim). " *
-              "Falling back to site-by-site sweep compression to avoid exponential memory cost."
+              "Falling back to site-by-site sweep compression to avoid exponential memory cost." maxlog=1
         # Fallback: apply identity gate to each bond sequentially.
         # This groups only two sites at a time, truncates, and decomposes back,
         # achieving O(n) memory cost instead of O(d^n).
@@ -188,6 +204,7 @@ Notes:
   enabled.
 """
 function energy_density(ψ::iMPS, h::AbstractMatrix; span::Integer=operator_span(ψ, h))
+    _validate_local_span(ψ, span)
     offset = span - 1
     E = 0.0
     for i in 1:ψ.n
@@ -347,13 +364,17 @@ Notes:
 """
 function _minimize_on_trajectory!(f, step!, ψ::iMPS, samples::Integer)
     ψtrial = deepcopy(ψ)
-    values = zeros(Float64, samples)
+    best_value = f(ψtrial)
+    best_index = 1
     for i in 1:samples
         step!(ψtrial)
-        values[i] = f(ψtrial)
+        value = f(ψtrial)
+        if value < best_value
+            best_value = value
+            best_index = i + 1
+        end
     end
-    _, index = findmin(values)
-    for _ in 1:index
+    for _ in 1:(best_index - 1)
         step!(ψ)
     end
     return ψ

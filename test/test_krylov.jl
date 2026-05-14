@@ -60,6 +60,29 @@ end
     @test all(evals .>= -1e-8)  # Allow tiny negative from numerical noise
 end
 
+@testset "KRYLOV_EIGEN_SUPPORTS_MIXED_RECTANGULAR_FIXED_POINT" begin
+    KL = deterministic_tensor(2, 2, 3)
+    KU = deterministic_tensor(3, 2, 2)
+
+    λ, ρ = iTEBD.krylov_eigen(KL, KU; dir=:r)
+
+    @test size(ρ) == (3, 2)
+    @test vec(iTEBD.kraus(KL, KU, ρ; dir=:r)) ≈ λ * vec(ρ) rtol=1e-8
+
+    λ_left, ρ_left = iTEBD.krylov_eigen(KL, KU; dir=:l)
+
+    @test size(ρ_left) == (3, 2)
+    @test vec(iTEBD.kraus(KL, KU, ρ_left; dir=:l)) ≈ λ_left * vec(ρ_left) rtol=1e-8
+end
+
+@testset "KRYLOV_EIGEN_VALIDATES_INITIAL_SHAPE_AND_PSD_PROJECTION" begin
+    KL = deterministic_tensor(2, 2, 3)
+    KU = deterministic_tensor(3, 2, 2)
+
+    @test_throws ArgumentError iTEBD.krylov_eigen(KL, KU, ones(2, 2); dir=:r)
+    @test_throws ArgumentError iTEBD.krylov_eigen(KL, KU; dir=:r, project_psd=true)
+end
+
 @testset "FIXED_POINT_MAT_RANDOM_PSD_START" begin
     K = deterministic_tensor(2, 2, 2)
     mat = iTEBD.fixed_point_mat(K; dir=:r)

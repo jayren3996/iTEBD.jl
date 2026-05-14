@@ -23,7 +23,7 @@ end
 @testset "GATE_INDICES_SINGLE_SITE" begin
     psi = product_iMPS(ComplexF64, [[1,0], [0,1]])
     inds = iTEBD._gate_indices(psi, 1, 1)
-    @test collect(inds) == [1, 2, 1]
+    @test collect(inds) == [1]
 end
 
 @testset "ONE_SITE_GATE_CORRECTNESS" begin
@@ -58,6 +58,19 @@ end
     @test stats.num_saturated == 0
 end
 
+@testset "APPLYGATE_NORMALIZES_PERIODIC_SITE_INDICES" begin
+    P = pauli_matrices()
+    n = 3
+    ψ = product_iMPS(ComplexF64, [[1, 0], [0, 1], [1, 0]])
+
+    ψ_after, stats = applygate!(ψ, P.X, n + 1, n + 1; return_stats=true)
+
+    @test ψ_after === ψ
+    @test iTEBD.expect(ψ, P.Z, 1, 1) ≈ -1.0 atol=1e-12
+    @test stats.support == (1, 1)
+    @test isempty(stats.bond_stats)
+end
+
 @testset "APPLYGATE_IDENTITY_PRESERVES_PRODUCT_STATE" begin
     ψ0 = product_iMPS(ComplexF64, [[1, 0], [0, 1]])
     ψ = product_iMPS(ComplexF64, [[1, 0], [0, 1]])
@@ -78,6 +91,20 @@ end
 
     @test iTEBD.inner_product(ψ, ψ0) ≈ 1.0 atol=1e-12
     @test maximum(length.(ψ.λ)) == 1
+end
+
+@testset "APPLYGATE_NORMALIZES_WRAPPED_MULTI_SITE_INDICES" begin
+    G = bell_gate()
+    n = 3
+    ψ_direct = product_iMPS(ComplexF64, [[1, 0], [1, 0], [0, 1]])
+    ψ_wrapped = deepcopy(ψ_direct)
+
+    applygate!(ψ_direct, G, 3, 1; maxdim=4)
+    _, stats = applygate!(ψ_wrapped, G, 0, n + 1; maxdim=4, return_stats=true)
+
+    @test stats.support == (3, 1)
+    @test length.(ψ_wrapped.λ) == length.(ψ_direct.λ)
+    @test iTEBD.inner_product(ψ_wrapped, ψ_direct) ≈ 1.0 atol=1e-12
 end
 
 @testset "LEGACY_CUTOFF_KEYWORD_IS_ACCEPTED" begin

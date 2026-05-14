@@ -50,6 +50,10 @@ function _transfer_degeneracy(Γ::AbstractArray{<:Number,3})
     Dl == Dr || return (degenerate=false, count=0, leading=0.0, tol=0.0)
 
     if Dl * Dr > 2500
+        sector = _simple_sector_selection(Γ)
+        if !isnothing(sector)
+            return (degenerate=true, count=sector.sectors, leading=NaN, tol=0.0)
+        end
         # Degeneracy detection is diagnostic. Avoid a Krylov preflight here:
         # on moderately large random tensors it can dominate or stall
         # canonicalization before the actual fixed-point solve starts.

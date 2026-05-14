@@ -163,6 +163,7 @@ function inner_product(T)
 end
 #---------------------------------------------------------------------------------------------------
 inner_product(T::iMPS) = inner_product(T, T)
+inner_product(Ts::AbstractVector{<:AbstractArray{<:Number,3}}) = inner_product(Ts, Ts)
 #---------------------------------------------------------------------------------------------------
 function inner_product(T1, T2)
     trmat = gtrm(T1, T2)

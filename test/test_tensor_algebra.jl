@@ -90,10 +90,38 @@ end
     @test 0 <= S[1] < 1e-12
 end
 
+@testset "SVD_TRIM_ITERATIVE_RECONSTRUCTS_TINY_RETAINED_VALUE" begin
+    M = Matrix(Diagonal([1e-30, 0.0, 0.0]))
+
+    U, S, V = iTEBD.svd_trim(M; maxdim=3, svd_min=1e-12, use_iterative=true)
+
+    @test U * Diagonal(S) * V ≈ M atol=1e-40 rtol=1e-8
+end
+
+@testset "SVD_TRUNCATE_BY_ERROR_REJECTS_NONFINITE_INPUT" begin
+    M = [1.0 Inf; 0.0 1.0]
+
+    @test_throws ArgumentError iTEBD._svd_truncate_by_error(M; maxdim=2)
+end
+
 @testset "DISCARDED_WEIGHT_SELECTOR_REJECTS_INVALID_ARGUMENTS" begin
     @test_throws ArgumentError iTEBD._discarded_weight_choice([1.0]; mindim=0)
     @test_throws ArgumentError iTEBD._discarded_weight_choice([1.0]; maxdim=0)
     @test_throws ArgumentError iTEBD._discarded_weight_choice([1.0]; mindim=3, maxdim=2)
     @test_throws ArgumentError iTEBD._discarded_weight_choice([1.0]; truncerr=-1e-3)
     @test_throws ArgumentError iTEBD._discarded_weight_choice([1.0]; svd_min=-1e-3)
+end
+
+@testset "DISCARDED_WEIGHT_SELECTOR_AVOIDS_VECTOR_TEMPORARIES" begin
+    s = collect(range(1.0, 0.001; length=1000))
+    choice = iTEBD._discarded_weight_choice(s; mindim=4, maxdim=128, truncerr=1e-8, svd_min=1e-12)
+
+    @test choice.chi_keep == 128
+    @test choice.saturated
+    @test choice.smallest_kept_sv == s[128]
+    @test choice.largest_discarded_sv == s[129]
+
+    f() = iTEBD._discarded_weight_choice(s; mindim=4, maxdim=128, truncerr=1e-8, svd_min=1e-12)
+    f()
+    @test (@allocated f()) < 12_000
 end
