@@ -5,17 +5,23 @@ function _operator_quadratic_form(
     Γ::AbstractArray{<:Number, 3},
     O::AbstractMatrix{<:Number},
 )
-    _, p, _ = size(Γ)
+    Dl, p, Dr = size(Γ)
     size(O) == (p, p) || throw(DimensionMismatch(
         "operator has size $(size(O)); expected ($p, $p) for grouped physical leg"
     ))
 
-    acc = zero(typeof(conj(zero(eltype(Γ))) * zero(eltype(O)) * zero(eltype(Γ))))
-    @inbounds for b in axes(Γ, 3), sout in axes(Γ, 2), sin in axes(Γ, 2)
-        coeff = O[sout, sin]
-        for a in axes(Γ, 1)
-            acc += conj(Γ[a, sout, b]) * coeff * Γ[a, sin, b]
-        end
+    # acc = ∑_{a,b,sout,sin} conj(Γ[a, sout, b]) · O[sout, sin] · Γ[a, sin, b].
+    # Slice Γ by the slow `b` index and BLAS-contract O on the physical leg of
+    # each (Dl, p) slice — one small preallocated work buffer is reused across
+    # all Dr slices, keeping allocations O(Dl·p) rather than O(Dl·p·Dr).
+    T = promote_type(eltype(Γ), eltype(O))
+    work = Matrix{T}(undef, Dl, p)
+    Ot = transpose(O)
+    acc = zero(T)
+    @inbounds for b in axes(Γ, 3)
+        Γ_b = @view Γ[:, :, b]
+        mul!(work, Γ_b, Ot)              # work[a, sout] = ∑_sin Γ[a, sin, b] · O[sout, sin]
+        acc += dot(Γ_b, work)
     end
     return acc
 end

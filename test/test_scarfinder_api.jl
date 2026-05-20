@@ -72,3 +72,24 @@ end
         @test iTEBD.inner_product(ψ_uniform, ψ_explicit) ≈ 1.0 atol=1e-12
     end
 end
+
+@testset "MINIMIZE_ON_TRAJECTORY_LANDS_AT_BEST_VALUE" begin
+    # Build a synthetic step!/f pair where the minimum occurs strictly
+    # mid-trajectory. The fixed-trajectory test verifies that the final
+    # state matches the trial state at the minimum point, instead of
+    # whatever a replayed step! would produce.
+    ψ = product_iMPS(ComplexF64, [[1, 0], [0, 1]])
+    f = x -> -float(x.λ[1][1])         # decreasing in λ[1][1]
+    counter = Ref(0)
+    function step!(x)
+        counter[] += 1
+        # Mutate the Schmidt vector so that f(x) traces 0, -1, -2, -1, 0...
+        # over four step!s. The minimum is therefore at sample index 3.
+        idx = mod(counter[] - 1, 4) + 1
+        x.λ[1][1] = (idx == 3 ? 2.0 : idx == 2 ? 1.0 : idx == 4 ? 1.0 : 0.0)
+        return x
+    end
+    iTEBD._minimize_on_trajectory!(f, step!, ψ, 4)
+    @test f(ψ) == -2.0
+    @test ψ.λ[1][1] == 2.0
+end

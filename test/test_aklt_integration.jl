@@ -1,6 +1,9 @@
 using Test
 using LinearAlgebra
+using Random
 using iTEBD
+
+Random.seed!(20260520)
 
 if !isdefined(Main, :TestUtils)
     include(joinpath(@__DIR__, "test_utils.jl"))

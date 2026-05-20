@@ -16,6 +16,7 @@ using .TestUtils: deterministic_tensor
         direct = iTEBD.kraus(KL, KU, ρ; dir)
         matrix_action = reshape(iTEBD.kraus_mat(KL, KU; dir) * vec(ρ), 2, 2)
         @test matrix_action ≈ direct atol=1e-12
+    end
 end
 
 @testset "STEADY_MAT_SYMMETRIZES_BEFORE_HERMITIAN" begin
@@ -98,7 +99,6 @@ end
     @test val > 0
     @test isfinite(val)
 end
-end
 
 @testset "KRAUS_REJECTS_ILLEGAL_DIRECTION" begin
     K = ones(ComplexF64, 1, 1, 1)
@@ -118,4 +118,28 @@ end
     @test left isa Hermitian
     @test Matrix(right) ≈ ones(ComplexF64, 1, 1)
     @test Matrix(left) ≈ ones(ComplexF64, 1, 1)
+end
+
+@testset "STEADY_MAT_DENSE_AND_KRYLOV_PATHS_AGREE" begin
+    # Threshold is a <= 8; sweep across the boundary to confirm both paths
+    # produce matching dominant fixed-point matrices on the same input.
+    for a in (4, 8, 12, 16)
+        K = deterministic_tensor(a, 2, a)
+        for dir in (:r, :l)
+            ρ = Matrix(iTEBD.steady_mat(K; dir))
+            # Brute-force reference via direct eigendecomposition of the dense
+            # transfer matrix.
+            m = iTEBD.kraus_mat(K, conj(K); dir)
+            vals, vecs = eigen(m)
+            idx = argmax(abs.(vals))
+            ρ_ref = reshape(vecs[:, idx], a, a)
+            ρ_ref = real(tr(ρ_ref)) < 0 ? -ρ_ref : ρ_ref
+            ρ_ref = (ρ_ref + ρ_ref') / 2
+            # Eigenvectors are defined up to scale; compare projected dominant
+            # eigenvalue agreement instead of raw matrix equality.
+            λ = tr(ρ' * (iTEBD.kraus(K, conj(K), ρ; dir))) / tr(ρ' * ρ)
+            λ_ref = tr(ρ_ref' * (iTEBD.kraus(K, conj(K), ρ_ref; dir))) / tr(ρ_ref' * ρ_ref)
+            @test abs(λ) ≈ abs(λ_ref) rtol=1e-6
+        end
+    end
 end

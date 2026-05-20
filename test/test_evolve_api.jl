@@ -1,7 +1,10 @@
 using Test
 using LinearAlgebra
+using Random
 using iTEBD
 using iTEBD: product_iMPS, applygate!, evolve!, trotter_gates
+
+Random.seed!(20260526)
 
 gate_product(gates) = begin
     dim = size(first(gates)[1], 1)

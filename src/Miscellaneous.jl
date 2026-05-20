@@ -157,26 +157,98 @@ Notes:
   unit cell, not a single local tensor.
 - The implementation returns the absolute value of the dominant eigenvalue.
 """
-function inner_product(T)
-    trmat = trm(T)
-    _dominant_eigenvalue(trmat)
+inner_product(T::iMPS) = inner_product(T, T)
+inner_product(mps1::iMPS, mps2::iMPS) = inner_product(mps1.Γ, mps2.Γ)
+#---------------------------------------------------------------------------------------------------
+inner_product(T::AbstractArray{<:Number, 3}) = inner_product(T, T)
+function inner_product(
+    T1::AbstractArray{<:Number, 3},
+    T2::AbstractArray{<:Number, 3},
+)
+    _dominant_chain_eigenvalue([T1], [T2])
 end
 #---------------------------------------------------------------------------------------------------
-inner_product(T::iMPS) = inner_product(T, T)
-inner_product(Ts::AbstractVector{<:AbstractArray{<:Number,3}}) = inner_product(Ts, Ts)
-#---------------------------------------------------------------------------------------------------
-function inner_product(T1, T2)
-    trmat = gtrm(T1, T2)
-    _dominant_eigenvalue(trmat)
+function inner_product(Ts::AbstractVector{<:AbstractArray{<:Number, 3}})
+    inner_product(Ts, Ts)
+end
+function inner_product(
+    T1s::AbstractVector{<:AbstractArray{<:Number, 3}},
+    T2s::AbstractVector{<:AbstractArray{<:Number, 3}},
+)
+    _dominant_chain_eigenvalue(T1s, T2s)
 end
 
-function _dominant_eigenvalue(trmat::AbstractMatrix)
-    if size(trmat, 1) <= 4096
-        vals, vecs = eigen(trmat)
-        idx = argmax(abs.(vals))
-        abs(vals[idx])
-    else
-        val, vec = eigsolve(trmat, 1, :LM; ishermitian=false)
-        abs(val[1])
+# Threshold below which the dense `gtrm + eigen` path is competitive with the
+# matrix-free Krylov sweep. For χ ≤ 8 the Arnoldi startup overhead matches or
+# exceeds the cost of a full χ²×χ² eigendecomposition; above that, the
+# matrix-free path is asymptotically better by O(χ³).
+const _CHAIN_EIG_DENSE_THRESHOLD = 8
+
+function _dominant_chain_eigenvalue(
+    T1s::AbstractVector{<:AbstractArray{<:Number, 3}},
+    T2s::AbstractVector{<:AbstractArray{<:Number, 3}};
+    dense_threshold::Integer=_CHAIN_EIG_DENSE_THRESHOLD,
+)
+    n = length(T1s)
+    n == length(T2s) || throw(ArgumentError(
+        "T1s and T2s have different lengths: $n vs $(length(T2s))"
+    ))
+    n > 0 || throw(ArgumentError("T1s and T2s must be non-empty"))
+
+    χL_T1 = size(T1s[1], 1)
+    χR_T1 = size(T1s[end], 3)
+    χL_T2 = size(T2s[1], 1)
+    χR_T2 = size(T2s[end], 3)
+    χL_T1 == χR_T1 && χL_T2 == χR_T2 || throw(DimensionMismatch(
+        "chain transfer not square: T1 has left=$χL_T1 right=$χR_T1, " *
+        "T2 has left=$χL_T2 right=$χR_T2"
+    ))
+
+    if max(χL_T1, χL_T2) <= dense_threshold
+        return _dominant_eigenvalue_dense(gtrm(T1s, T2s))
     end
+
+    T = promote_type(eltype(T1s[1]), eltype(T2s[1]))
+    seed = zeros(T, χR_T2, χR_T1)
+    @inbounds for i in 1:min(χR_T2, χR_T1)
+        seed[i, i] = one(T)
+    end
+
+    # Reuse a single workspace across all Krylov matvecs. Without this the
+    # chain sweep allocates ~n * χ² per matvec, which dominates wall time for
+    # large unit cells (e.g. n=8 χ=32 → ~800 KB / matvec).
+    ws = ChainTransferWorkspace(T1s, T2s)
+    out_size = χR_T2 * χR_T1
+    f = function (ρ_vec)
+        ρ_mat = reshape(ρ_vec, χR_T2, χR_T1)
+        result_view = apply_chain_transfer!(ws, T1s, T2s, ρ_mat; dir=:r)
+        # Copy out of workspace into a fresh vector — eigsolve retains its
+        # iterates, so they cannot alias the ping-pong buffers.
+        out = Vector{T}(undef, out_size)
+        copyto!(out, vec(result_view))
+        return out
+    end
+
+    vals, _, info = eigsolve(f, vec(seed), 1, :LM; ishermitian=false)
+    if info.converged < 1
+        # Random unstructured transfers occasionally fail to converge with the
+        # default Krylov budget; fall back to the dense path for correctness.
+        @warn "Dominant chain eigenvalue Krylov solver did not converge; " *
+              "falling back to dense path" info
+        return _dominant_eigenvalue_dense(gtrm(T1s, T2s))
+    end
+    return abs(vals[1])
+end
+
+function _dominant_eigenvalue_dense(trmat::AbstractMatrix)
+    if size(trmat, 1) <= 4096
+        vals, _ = eigen(trmat)
+        idx = argmax(abs.(vals))
+        return abs(vals[idx])
+    end
+    vals, _, info = eigsolve(trmat, 1, :LM; ishermitian=false)
+    if info.converged < 1
+        @warn "Dominant eigenvalue Krylov solver did not converge" info
+    end
+    return abs(vals[1])
 end

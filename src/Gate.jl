@@ -54,7 +54,7 @@ function tensor_applygate!(
     maxdim::Integer=MAXDIM,
     mindim::Integer=1,
     truncerr::Real=0.0,
-    svd_min::Real=SVDTOL,
+    svd_min::Union{Nothing,Real}=nothing,
     cutoff::Union{Nothing,Real}=nothing,
     renormalize::Bool=false,
     return_stats::Bool=false,
@@ -141,7 +141,7 @@ function applygate!(
     maxdim::Integer=MAXDIM,
     mindim::Integer=1,
     truncerr::Real=0.0,
-    svd_min::Real=SVDTOL,
+    svd_min::Union{Nothing,Real}=nothing,
     cutoff::Union{Nothing,Real}=nothing,
     renormalize::Bool=true,
     return_stats::Bool=false
@@ -250,15 +250,15 @@ function _validate_truncation_args(
     return nothing
 end
 
-function _resolve_svd_min(svd_min::Real, cutoff::Union{Nothing,Real})
-    if isnothing(cutoff)
-        return svd_min
+function _resolve_svd_min(svd_min::Union{Nothing,Real}, cutoff::Union{Nothing,Real})
+    if !isnothing(cutoff)
+        isfinite(cutoff) && cutoff >= 0 ||
+            throw(ArgumentError("cutoff must be finite and non-negative"))
+        isnothing(svd_min) ||
+            throw(ArgumentError("cutoff and svd_min are aliases; pass only one"))
+        return cutoff
     end
-    isfinite(cutoff) && cutoff >= 0 ||
-        throw(ArgumentError("cutoff must be finite and non-negative"))
-    svd_min == SVDTOL ||
-        throw(ArgumentError("cutoff and svd_min are aliases; pass only one"))
-    return cutoff
+    return isnothing(svd_min) ? SVDTOL : svd_min
 end
 
 function _validate_chi_policy(chi_policy::Symbol)
@@ -458,7 +458,7 @@ function _evolve_gate_sequence!(
     maxdim::Integer=MAXDIM,
     mindim::Integer=1,
     truncerr::Real=0.0,
-    svd_min::Real=SVDTOL,
+    svd_min::Union{Nothing,Real}=nothing,
     cutoff::Union{Nothing,Real}=nothing,
     renormalize::Bool=true,
     return_stats::Bool=false,
@@ -633,7 +633,7 @@ function evolve!(
     maxdim::Integer=MAXDIM,
     mindim::Integer=1,
     truncerr::Real=0.0,
-    svd_min::Real=SVDTOL,
+    svd_min::Union{Nothing,Real}=nothing,
     cutoff::Union{Nothing,Real}=nothing,
     chi_policy::Symbol=:fixed,
     q::Real=1.0,
@@ -726,7 +726,7 @@ function evolve!(
     maxdim::Integer=MAXDIM,
     mindim::Integer=1,
     truncerr::Real=0.0,
-    svd_min::Real=SVDTOL,
+    svd_min::Union{Nothing,Real}=nothing,
     cutoff::Union{Nothing,Real}=nothing,
     chi_policy::Symbol=:fixed,
     q::Real=1.0,

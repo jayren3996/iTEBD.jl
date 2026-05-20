@@ -315,6 +315,9 @@ function _energy_fix!(
     α::Real=0.1,
     maxstep::Integer=50
 )
+    ishermitian(h) || throw(ArgumentError(
+        "_energy_fix! requires a Hermitian Hamiltonian density `h`; got non-Hermitian input"
+    ))
     E = energy_density(ψ, h; span)
     dE = E - target
     abs(dE) < tol && return ψ
@@ -365,19 +368,36 @@ Notes:
 function _minimize_on_trajectory!(f, step!, ψ::iMPS, samples::Integer)
     ψtrial = deepcopy(ψ)
     best_value = f(ψtrial)
-    best_index = 1
-    for i in 1:samples
+    best_state = deepcopy(ψtrial)
+    for _ in 1:samples
         step!(ψtrial)
         value = f(ψtrial)
         if value < best_value
             best_value = value
-            best_index = i + 1
+            best_state = deepcopy(ψtrial)
         end
     end
-    for _ in 1:(best_index - 1)
-        step!(ψ)
-    end
+    # Copy the minimizing state back into ψ directly rather than replaying
+    # step! on ψ. Replaying re-invokes a chain of SVD/canonicalization calls
+    # whose gauge phases on degenerate Schmidt spectra are not guaranteed to
+    # be reproducible across runs, so the replayed trajectory could land at
+    # a different gauge representative of the same physical state.
+    _copy_imps_state!(ψ, best_state)
     return ψ
+end
+
+function _copy_imps_state!(dst::iMPS, src::iMPS)
+    dst.n == src.n ||
+        throw(DimensionMismatch("unit-cell length cannot change during _minimize_on_trajectory!"))
+    resize!(dst.Γ, length(src.Γ))
+    resize!(dst.λ, length(src.λ))
+    for i in eachindex(src.Γ)
+        dst.Γ[i] = copy(src.Γ[i])
+    end
+    for i in eachindex(src.λ)
+        dst.λ[i] = copy(src.λ[i])
+    end
+    return dst
 end
 
 """

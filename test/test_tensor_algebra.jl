@@ -125,3 +125,111 @@ end
     f()
     @test (@allocated f()) < 12_000
 end
+
+@testset "APPLY_TRANSFER_MATCHES_GTRM_DENSE_ACTION" begin
+    using Random
+    Random.seed!(20260520)
+    for (χ1, d, χ2) in [(3, 2, 3), (4, 3, 5), (6, 2, 4), (8, 2, 8)]
+        T1 = randn(ComplexF64, χ1, d, χ1)
+        T2 = randn(ComplexF64, χ2, d, χ2)
+        M = iTEBD.gtrm(T1, T2)
+
+        ρ_r = randn(ComplexF64, χ2, χ1)
+        ref_r = reshape(M * vec(ρ_r), χ2, χ1)
+        new_r = iTEBD.apply_transfer(T1, T2, ρ_r; dir=:r)
+        @test new_r ≈ ref_r rtol=1e-10
+
+        ρ_l = randn(ComplexF64, χ2, χ1)
+        ref_l = reshape(transpose(M) * vec(ρ_l), χ2, χ1)
+        new_l = iTEBD.apply_transfer(T1, T2, ρ_l; dir=:l)
+        @test new_l ≈ ref_l rtol=1e-10
+    end
+end
+
+@testset "APPLY_CHAIN_TRANSFER_MATCHES_GTRM_PRODUCT" begin
+    using Random
+    Random.seed!(20260520)
+    for (n, χ, d) in [(2, 4, 2), (3, 6, 2), (4, 8, 3), (3, 12, 2)]
+        T1s = [randn(ComplexF64, χ, d, χ) for _ in 1:n]
+        T2s = [randn(ComplexF64, χ, d, χ) for _ in 1:n]
+        M = iTEBD.gtrm(T1s, T2s)
+        ρ = randn(ComplexF64, χ, χ)
+
+        ref_r = reshape(M * vec(ρ), χ, χ)
+        new_r = iTEBD.apply_chain_transfer(T1s, T2s, ρ; dir=:r)
+        @test new_r ≈ ref_r rtol=1e-10
+
+        ref_l = reshape(transpose(M) * vec(ρ), χ, χ)
+        new_l = iTEBD.apply_chain_transfer(T1s, T2s, ρ; dir=:l)
+        @test new_l ≈ ref_l rtol=1e-10
+    end
+end
+
+@testset "APPLY_TRANSFER_REJECTS_BAD_SHAPE_AND_DIR" begin
+    T1 = randn(ComplexF64, 4, 2, 4)
+    T2 = randn(ComplexF64, 4, 2, 4)
+    @test_throws DimensionMismatch iTEBD.apply_transfer(T1, T2, zeros(ComplexF64, 3, 3); dir=:r)
+    @test_throws DimensionMismatch iTEBD.apply_transfer(T1, T2, zeros(ComplexF64, 3, 3); dir=:l)
+    @test_throws ArgumentError iTEBD.apply_transfer(T1, T2, zeros(ComplexF64, 4, 4); dir=:up)
+    bad = randn(ComplexF64, 4, 3, 4)  # different physical dim
+    @test_throws DimensionMismatch iTEBD.apply_transfer(T1, bad, zeros(ComplexF64, 4, 4); dir=:r)
+end
+
+@testset "APPLY_CHAIN_TRANSFER_REJECTS_BAD_INPUT" begin
+    T = [randn(ComplexF64, 4, 2, 4) for _ in 1:3]
+    @test_throws ArgumentError iTEBD.apply_chain_transfer(T, T[1:2], zeros(ComplexF64, 4, 4))
+    @test_throws ArgumentError iTEBD.apply_chain_transfer(typeof(T)(), typeof(T)(), zeros(ComplexF64, 4, 4))
+    @test_throws ArgumentError iTEBD.apply_chain_transfer(T, T, zeros(ComplexF64, 4, 4); dir=:bad)
+end
+
+@testset "APPLY_TRANSFER_RECTANGULAR_BONDS_AND_FLOAT64" begin
+    using Random
+    Random.seed!(20260520)
+    # Cross-element-type and asymmetric (χL ≠ χR) tensor shapes — both code paths
+    # the existing tests skip. Float64 takes the no-conj branch where adjoint==transpose.
+    for ET in (Float64, ComplexF64)
+        for (χL1, χR1, χL2, χR2, d) in [(3, 5, 4, 6, 2), (2, 7, 5, 3, 3), (8, 4, 6, 5, 2)]
+            T1 = randn(ET, χL1, d, χR1)
+            T2 = randn(ET, χL2, d, χR2)
+            M = iTEBD.gtrm(T1, T2)
+
+            ρr = randn(ET, χR2, χR1)
+            ref_r = reshape(M * vec(ρr), χL2, χL1)
+            @test iTEBD.apply_transfer(T1, T2, ρr; dir=:r) ≈ ref_r rtol=1e-10
+
+            ρl = randn(ET, χL2, χL1)
+            ref_l = reshape(transpose(M) * vec(ρl), χR2, χR1)
+            @test iTEBD.apply_transfer(T1, T2, ρl; dir=:l) ≈ ref_l rtol=1e-10
+        end
+    end
+end
+
+@testset "CHAIN_TRANSFER_WORKSPACE_REUSES_ACROSS_DIFFERENT_TENSORS" begin
+    using Random
+    Random.seed!(20260520)
+    # Workspace sized for the larger chain must safely process a smaller one too.
+    big = [randn(ComplexF64, 16, 2, 16) for _ in 1:6]
+    small = [randn(ComplexF64, 10, 2, 10) for _ in 1:3]
+    ws = iTEBD.ChainTransferWorkspace(big, big)  # infer T via convenience ctor
+    ρ_small = randn(ComplexF64, 10, 10)
+    ref = iTEBD.apply_chain_transfer(small, small, ρ_small; dir=:r)
+    @test iTEBD.apply_chain_transfer!(ws, small, small, ρ_small; dir=:r) ≈ ref rtol=1e-10
+end
+
+@testset "APPLY_CHAIN_TRANSFER_INPLACE_ALLOCATIONS_BOUNDED" begin
+    using Random
+    Random.seed!(20260520)
+    # Locks in the contract: in-place sweep is O(1) allocations per call,
+    # independent of unit-cell length. Without this guard a regression that
+    # reintroduced per-site allocations (e.g. dropping an `@view`) would only be
+    # noticed via benchmarks.
+    n, χ, d = 6, 16, 2
+    T1s = [randn(ComplexF64, χ, d, χ) for _ in 1:n]
+    T2s = [randn(ComplexF64, χ, d, χ) for _ in 1:n]
+    ρ = randn(ComplexF64, χ, χ)
+    ws = iTEBD.ChainTransferWorkspace(T1s, T2s)
+    iTEBD.apply_chain_transfer!(ws, T1s, T2s, ρ; dir=:r)  # warmup
+    iTEBD.apply_chain_transfer!(ws, T1s, T2s, ρ; dir=:r)
+    # Budget covers per-site reshape SubArray wrappers (n*~80 B) plus a little slack.
+    @test (@allocated iTEBD.apply_chain_transfer!(ws, T1s, T2s, ρ; dir=:r)) < 4_000
+end

@@ -199,12 +199,13 @@ Notes:
 """
 function steady_mat(K::AbstractArray{<:Number, 3}; dir::Symbol=:r)
     a, b, _ = size(K)
-    # Threshold for using Krylov vs dense eigendecomposition.
-    # For large bond dimensions (a), building a dense a^2 × a^2 transfer matrix
-    # and running full eigen becomes O(a^6) time and O(a^4) memory.
-    # When the physical dimension b is also large (grouped tensors), the condition
-    # b > a used to force dense mode. Now we prefer Krylov for a > 32 regardless.
-    use_dense = a <= 32
+    # The dense path is O(a^4 * b) to build + O(a^6) for full eigen, while the
+    # Krylov path costs ~k_arn * a^3 * b per matvec. Crossover is at a^3 ≈ k * b
+    # with k_arn ≈ 20–30, so a ≈ (20 b)^{1/3}. For grouped tensors of physical
+    # dimension up to ~256 the crossover stays under a = 18; a fixed cutoff of 8
+    # is conservative for all realistic d^n while still letting toy χ ≤ 8 cases
+    # use the dense path (where Krylov startup overhead can dominate).
+    use_dense = a <= 8
     vec = if use_dense
         m = kraus_mat(K, conj(K); dir)
         vals, vecs = eigen(m)

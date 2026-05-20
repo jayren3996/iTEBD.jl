@@ -1,7 +1,10 @@
 using Test
 using LinearAlgebra
+using Random
 using ITensors
 using ITensorMPS
+
+Random.seed!(20260525)
 
 @isdefined(iTEBD) || include("../src/iTEBD.jl")
 using .iTEBD: iTEBD, iMPS, rand_iMPS, product_iMPS, canonical!, expect, getindex
@@ -26,6 +29,22 @@ end
 
     @test mps isa ITensorMPS.AbstractMPS
     @test length(mps) == length(sites)
+end
+
+@testset "IMPS2MPS_L1_DISTINCT_BOUNDARY_INDICES" begin
+    # For L == 1 the wrap-around convention collapses left == right onto the
+    # same Index, producing a self-contracted ITensor. The fix allocates a
+    # distinct boundary Index, so the resulting tensor has three independent
+    # legs.
+    ψ = product_iMPS(ComplexF64, [[1, 0]])
+    sites = [Index(2, "site=1")]
+    mps = iTEBD.imps2mps(ψ, sites; L=1)
+
+    @test mps isa ITensorMPS.AbstractMPS
+    @test length(mps) == 1
+    inds_t = inds(mps[1])
+    @test length(inds_t) == 3
+    @test length(unique(inds_t)) == 3
 end
 
 #-----------------------------------------------------------------------

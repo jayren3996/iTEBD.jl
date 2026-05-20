@@ -1,6 +1,9 @@
 using Test
 using LinearAlgebra
+using Random
 using iTEBD
+
+Random.seed!(20260523)
 
 if !isdefined(Main, :TestUtils)
     include(joinpath(@__DIR__, "test_utils.jl"))
@@ -111,8 +114,19 @@ end
     G = bell_gate()
     ψ = product_iMPS(ComplexF64, [[1, 0], [1, 0]])
 
+    # Default behaviour: both nothing -> SVDTOL.
+    @test iTEBD._resolve_svd_min(nothing, nothing) == iTEBD.SVDTOL
+    # Explicit svd_min, no cutoff.
     @test iTEBD._resolve_svd_min(iTEBD.SVDTOL, nothing) == iTEBD.SVDTOL
-    @test iTEBD._resolve_svd_min(iTEBD.SVDTOL, 0.0) == 0.0
+    @test iTEBD._resolve_svd_min(1.5e-10, nothing) == 1.5e-10
+    # Cutoff alone resolves to the cutoff value.
+    @test iTEBD._resolve_svd_min(nothing, 0.0) == 0.0
+    @test iTEBD._resolve_svd_min(nothing, 1.5e-10) == 1.5e-10
+    # Passing both is always an error, even if svd_min equals the historical
+    # default — the previous behaviour silently dropped svd_min, which made
+    # it impossible to tell whether the caller intended SVDTOL or had a typo.
+    @test_throws ArgumentError iTEBD._resolve_svd_min(iTEBD.SVDTOL, 0.0)
+    @test_throws ArgumentError iTEBD._resolve_svd_min(1.5e-10, 2e-12)
     @test applygate!(ψ, G, 1, 2; maxdim=4, cutoff=0.0) === ψ
     @test maximum(length.(ψ.λ)) == 2
     @test_throws ArgumentError applygate!(ψ, G, 1, 2; cutoff=1e-12, svd_min=2e-12)

@@ -279,7 +279,15 @@ function _iterative_svd_trim(
         v0 = randn(T, n)
     end
 
-    vals, vecs = eigsolve(f, v0, k, :LM; ishermitian=true, tol=svd_min)
+    # eigsolve operates on the Gram matrix, whose eigenvalues are σ². The
+    # residual tolerance therefore needs to be on the σ² scale, not σ — passing
+    # tol=svd_min would give singular-value precision of only sqrt(svd_min).
+    # Clamp below at machine precision to avoid asking for sub-eps residuals.
+    eig_tol = max(svd_min^2, eps(real(SType)))
+    vals, vecs, info = eigsolve(f, v0, k, :LM; ishermitian=true, tol=eig_tol)
+    if info.converged < min(k, length(vals))
+        @warn "Iterative SVD eigsolve did not fully converge" info=info wanted=k
+    end
 
     # Clip negative eigenvalues from numerical noise, but keep at least the
     # leading Ritz value to match the dense path when every singular value is
@@ -809,107 +817,191 @@ function gtrm(
     end
     M
 end
+
+#---------------------------------------------------------------------------------------------------
+# Matrix-free transfer-map application
 #---------------------------------------------------------------------------------------------------
 """
-    trm(T::AbstractArray{<:Number, 3})
+    apply_transfer(T1, T2, ρ; dir=:r)
 
-Transfer matrix for a single local MPS tensor `T`.
+Apply the single-site mixed transfer map E(T1, T2) to a matrix `ρ` without
+materializing the χ²×χ² dense transfer matrix produced by [`gtrm`](@ref).
 
-This is shorthand for `gtrm(T, T)`.
+With `T1` of shape `(χL1, d, χR1)` and `T2` of shape `(χL2, d, χR2)`:
 
-Notes:
-- For a whole unit cell stored as a vector of tensors, use `gtrm(Ts, Ts)` to
-  construct the unit-cell transfer matrix.
+* `dir=:r` takes `ρ` of shape `(χR2, χR1)` to a matrix of shape `(χL2, χL1)`:
+
+  `ρ'[a, b] = ∑_{a',b',s} T2[a, s, a'] * ρ[a', b'] * conj(T1[b, s, b'])`
+
+* `dir=:l` takes `ρ` of shape `(χL2, χL1)` to a matrix of shape `(χR2, χR1)`
+  via the corresponding adjoint sweep.
+
+Each call costs `O(d·χ³)` and is the matrix-free building block underlying the
+fast `inner_product` Krylov path.
 """
-function trm(T::AbstractArray{<:Number, 3}) 
-    gtrm(T, T)
-end
-#---------------------------------------------------------------------------------------------------
-"""
-    otrm(T1::AbstractArray, O::AbstractMatrix, T2::AbstractArray)
-
-Build the operator transfer matrix between two local tensors with a local
-operator inserted on the physical leg.
-
-Parameters:
-- `T1`, `T2`
-  Local three-leg tensors.
-- `O`
-  Dense one-site operator acting on the physical leg.
-
-Returns:
-- Dense matrix representation of the resulting operator transfer matrix.
-"""
-function otrm(
+function apply_transfer(
     T1::AbstractArray{<:Number, 3},
-    O::AbstractMatrix{<:Number},
-    T2::AbstractArray{<:Number, 3}
+    T2::AbstractArray{<:Number, 3},
+    ρ::AbstractMatrix;
+    dir::Symbol=:r,
 )
-    i1, j1, k1 = size(T2)
-    i2, j2, k2 = size(T1)
-    T1c = conj(T1)
-    ctype = promote_type(eltype(T1c), eltype(O), eltype(T2))
-    transfer_mat = Array{ctype, 4}(undef, i1, i2, k1, k2)
-    @tensor transfer_mat[:] = T1c[-2,1,-4] * O[1,2] * T2[-1,2,-3]
-    reshape(transfer_mat, i1*i2, :)
+    χL1, d, χR1 = size(T1)
+    χL2, d2, χR2 = size(T2)
+    d == d2 || throw(DimensionMismatch(
+        "physical dimensions of T1 ($d) and T2 ($d2) must match"
+    ))
+    if dir === :r
+        size(ρ) == (χR2, χR1) || throw(DimensionMismatch(
+            "ρ has size $(size(ρ)); expected ($χR2, $χR1) for dir=:r"
+        ))
+        # Step 1: tmp[χL2·d, χR1] = T2_mat[χL2·d, χR2] * ρ[χR2, χR1]
+        T2_mat = reshape(T2, χL2 * d, χR2)
+        tmp = T2_mat * ρ
+        # Step 2: ρ'[χL2, χL1] = tmp_view[χL2, d·χR1] * adjoint(T1_mat[χL1, d·χR1])
+        T1_mat = reshape(T1, χL1, d * χR1)
+        return reshape(tmp, χL2, d * χR1) * adjoint(T1_mat)
+    elseif dir === :l
+        size(ρ) == (χL2, χL1) || throw(DimensionMismatch(
+            "ρ has size $(size(ρ)); expected ($χL2, $χL1) for dir=:l"
+        ))
+        # Step 1: tmp[χL1, d·χR2] = transpose(ρ)[χL1, χL2] * T2_mat[χL2, d·χR2]
+        T2_mat = reshape(T2, χL2, d * χR2)
+        tmp = transpose(ρ) * T2_mat                           # (χL1, d·χR2)
+        tmp = reshape(tmp, χL1 * d, χR2)
+        # Step 2: ρ'[χR2, χR1] = adjoint(conj(T1))[χR1, χL1·d] * tmp[χL1·d, χR2]
+        #   ⇔ ρ'[χR2, χR1] = transpose(tmp)[χR2, χL1·d] * (T1_mat_conj_flat)[χL1·d, χR1]
+        T1_mat = reshape(T1, χL1 * d, χR1)
+        return transpose(tmp) * conj(T1_mat)
+    else
+        throw(ArgumentError("Illegal direction: $dir."))
+    end
 end
-#---------------------------------------------------------------------------------------------------
+
 """
-    otrm(T1s::AbstractVector, O::AbstractMatrix, T2s::AbstractVector)
+    apply_chain_transfer(T1s, T2s, ρ; dir=:r)
 
-Build an operator transfer matrix for a full unit cell with the same local
-operator inserted on every site.
+Apply the n-site unit-cell mixed transfer
+`E_cell = E_1 · E_2 · … · E_n` to a matrix `ρ` via a site-by-site sweep,
+without materializing any χ²×χ² intermediate.
 
-Parameters:
-- `T1s`, `T2s`
-  Vectors of local tensors.
-- `O`
-  One-site operator inserted at each site.
-
-Returns:
-- Dense matrix representation of the operator transfer matrix for the full unit
-  cell.
+Cost is `O(n·d·χ³)` per call versus `O(n·χ⁶)` for the dense product, with
+identical numerical result up to roundoff. For `dir=:r` the sweep applies
+`E_n` first, then `E_{n-1}`, …, then `E_1`, matching the matrix-product
+ordering returned by [`gtrm`](@ref).
 """
-function otrm(
+function apply_chain_transfer(
     T1s::AbstractVector{<:AbstractArray{<:Number, 3}},
-    O::AbstractMatrix{<:Number},
-    T2s::AbstractVector{<:AbstractArray{<:Number, 3}}
+    T2s::AbstractVector{<:AbstractArray{<:Number, 3}},
+    ρ::AbstractMatrix;
+    dir::Symbol=:r,
 )
     n = length(T1s)
-    M = otrm(T1s[1], O, T2s[1])
-    for i=2:n
-        M = M * otrm(T1s[i], O, T2s[i])
+    n == length(T2s) || throw(ArgumentError(
+        "T1s and T2s have different lengths: $n vs $(length(T2s))"
+    ))
+    n > 0 || throw(ArgumentError("T1s and T2s must be non-empty"))
+    current = ρ
+    if dir === :r
+        for i in n:-1:1
+            current = apply_transfer(T1s[i], T2s[i], current; dir=:r)
+        end
+    elseif dir === :l
+        for i in 1:n
+            current = apply_transfer(T1s[i], T2s[i], current; dir=:l)
+        end
+    else
+        throw(ArgumentError("Illegal direction: $dir."))
     end
-    M
+    return current
 end
-#---------------------------------------------------------------------------------------------------
-"""
-    otrm(T1s::AbstractVector, Os::AbstractVector, T2s::AbstractVector)
 
-Build an operator transfer matrix for a full unit cell with site-dependent
-operators.
+# Workspace used by the in-place transfer-chain sweep. Buffers are sized to the
+# maximum intermediate needed across all sites, so a single workspace suffices
+# even when bond dimensions vary inside the unit cell. dir=:r only (the
+# matrix-free inner-product / dominant-eigenvalue path); dir=:l falls back to
+# the allocating `apply_chain_transfer`.
+struct ChainTransferWorkspace{T<:Number}
+    tmp::Vector{T}        # holds the (χL2·d, χR1) per-site intermediate
+    buf_a::Vector{T}      # ping-pong buffers for the running ρ
+    buf_b::Vector{T}
+end
 
-Parameters:
-- `T1s`, `T2s`
-  Vectors of local tensors.
-- `Os`
-  Vector of one-site operators, one for each site.
-
-Returns:
-- Dense matrix representation of the operator transfer matrix for the full unit
-  cell.
-"""
-function otrm(
-    T1s::AbstractVector{<:AbstractArray{<:Number, 3}},
-    Os::AbstractVector{<:AbstractMatrix{<:Number}},
-    T2s::AbstractVector{<:AbstractArray{<:Number, 3}}
-)
+function ChainTransferWorkspace(T::Type, T1s, T2s)
     n = length(T1s)
-    M = otrm(T1s[1], Os[1], T2s[1])
-    for i=2:n
-        M = M * otrm(T1s[i], Os[i], T2s[i])
+    tmp_cap = 0
+    rho_cap = 0
+    for i in 1:n
+        χL1, d, χR1 = size(T1s[i])
+        χL2, _, χR2 = size(T2s[i])
+        tmp_cap = max(tmp_cap, χL2 * d * χR1)
+        rho_cap = max(rho_cap, χR2 * χR1, χL2 * χL1)
     end
-    M
+    ChainTransferWorkspace{T}(
+        Vector{T}(undef, tmp_cap),
+        Vector{T}(undef, rho_cap),
+        Vector{T}(undef, rho_cap),
+    )
+end
+
+# Convenience constructor: infer the element type from the input tensors.
+ChainTransferWorkspace(T1s, T2s) = ChainTransferWorkspace(
+    promote_type(eltype(T1s[1]), eltype(T2s[1])), T1s, T2s,
+)
+
+"""
+    apply_chain_transfer!(ws, T1s, T2s, ρ; dir=:r)
+
+In-place version of [`apply_chain_transfer`](@ref) that reuses the buffers
+stored in `ws::ChainTransferWorkspace`. Returns a reshape view into one of the
+workspace's ping-pong buffers; the returned matrix aliases workspace memory and
+is invalidated on the next call.
+
+Only `dir=:r` is supported in-place; this is the path used by the matrix-free
+Krylov inner-product loop. Allocations are O(1) per call (just reshape views),
+independent of the unit cell length.
+"""
+function apply_chain_transfer!(
+    ws::ChainTransferWorkspace{T},
+    T1s::AbstractVector{<:AbstractArray{<:Number, 3}},
+    T2s::AbstractVector{<:AbstractArray{<:Number, 3}},
+    ρ::AbstractMatrix;
+    dir::Symbol=:r,
+) where {T}
+    dir === :r || throw(ArgumentError(
+        "apply_chain_transfer! only supports dir=:r; use apply_chain_transfer for dir=:l"
+    ))
+    n = length(T1s)
+    n == length(T2s) || throw(ArgumentError(
+        "T1s and T2s have different lengths: $n vs $(length(T2s))"
+    ))
+    n > 0 || throw(ArgumentError("T1s and T2s must be non-empty"))
+
+    χ_in1, χ_in2 = size(ρ)
+    copyto!(view(ws.buf_a, 1:(χ_in1 * χ_in2)), vec(ρ))
+    in_buf = ws.buf_a
+    out_buf = ws.buf_b
+    cur_rows, cur_cols = χ_in1, χ_in2
+
+    @inbounds for i in n:-1:1
+        χL1, d, χR1 = size(T1s[i])
+        χL2, d2, χR2 = size(T2s[i])
+        d == d2 || throw(DimensionMismatch(
+            "physical dimensions of T1[$i] ($d) and T2[$i] ($d2) must match"
+        ))
+        cur_rows == χR2 && cur_cols == χR1 || throw(DimensionMismatch(
+            "ρ shape mismatch at site $i: have ($cur_rows, $cur_cols), expected ($χR2, $χR1)"
+        ))
+        ρ_view = reshape(view(in_buf, 1:(χR2 * χR1)), χR2, χR1)
+        T2_mat = reshape(T2s[i], χL2 * d, χR2)
+        T1_mat = reshape(T1s[i], χL1, d * χR1)
+        tmp_view = reshape(view(ws.tmp, 1:(χL2 * d * χR1)), χL2 * d, χR1)
+        mul!(tmp_view, T2_mat, ρ_view)
+        out_view = reshape(view(out_buf, 1:(χL2 * χL1)), χL2, χL1)
+        mul!(out_view, reshape(tmp_view, χL2, d * χR1), adjoint(T1_mat))
+        cur_rows, cur_cols = χL2, χL1
+        in_buf, out_buf = out_buf, in_buf
+    end
+    return reshape(view(in_buf, 1:(cur_rows * cur_cols)), cur_rows, cur_cols)
 end
 
 #---------------------------------------------------------------------------------------------------

@@ -1,6 +1,9 @@
 using Test
 using LinearAlgebra
+using Random
 using iTEBD
+
+Random.seed!(20260524)
 
 @testset "Schmidt Fix Tests" begin
 

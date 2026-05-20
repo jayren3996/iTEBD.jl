@@ -58,15 +58,27 @@ Vidal tensor rather than the stored right-canonical tensor.
 Time evolution is implemented by repeatedly applying a local gate:
 
 ```julia
-applygate!(ψ, G, i, j; maxdim=MAXDIM, cutoff=SVDTOL, renormalize=true)
+applygate!(ψ, G, i, j;
+           maxdim=MAXDIM, mindim=1,
+           truncerr=0.0, svd_min=SVDTOL,
+           renormalize=true, return_stats=false)
 ```
 
 where:
 
 - `ψ` is an `iMPS`,
 - `G` is a dense local operator,
-- `i:j` specifies the support within the periodic unit cell,
-- `maxdim` controls the temporary bond dimension during truncation.
+- `i:j` specifies the contiguous support inside the periodic unit cell,
+- `maxdim` is the hard cap on the kept bond dimension,
+- `mindim` is the minimum kept bond dimension,
+- `truncerr` is the target local discarded weight per bond,
+- `svd_min` is an absolute singular-value floor (`cutoff` is accepted as a
+  deprecated alias),
+- `return_stats=true` makes `applygate!` return `(ψ, stats)` with per-bond
+  truncation diagnostics instead of just mutating `ψ`.
+
+See [`docs/src/truncation-note.md`](docs/src/truncation-note.md) for the full
+controller semantics.
 
 ## Main API
 
@@ -75,10 +87,15 @@ These are the entry points you are most likely to use:
 - `iMPS(Γs; renormalize=true)`
 - `rand_iMPS(T, n, d, dim)`
 - `product_iMPS(vectors)`
-- `canonical!(ψ)`
+- `canonical!(ψ; maxdim=MAXDIM, cutoff=SVDTOL, renormalize=true)`
 - `applygate!(ψ, G, i, j; ...)`
-- `evolve!(ψ, gates, steps; chi_policy=:fixed, ...)`
+- `evolve!(ψ, gates, steps; chi_policy=:fixed, ...)` — gate-list sweep
+- `evolve!(ψ, layers, dt, steps; trotter=:second, evolution=:real, ...)` —
+  Trotter macro-step from commuting Hamiltonian layers
+- `trotter_gates(layers, dt; trotter=:second, evolution=:real)`
 - `inner_product(ψ1, ψ2)`
+- `expect(ψ, O, i, j)`
+- `ent_S(ψ, i)`
 - `energy_density(ψ, h; span=...)`
 - `energy_span(n, d, h; ...)`
 - `scarfinder_step!`

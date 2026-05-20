@@ -293,6 +293,7 @@ function canonical!(
     symmetry_break::Symbol=:none,
 )
     _validate_canonical_options(maxdim, cutoff, noninjective, symmetry_break)
+    bond_dims_before = length.(ψ.λ)
     ψ.Γ[:], ψ.λ[:] = schmidt_canonical(
         ψ.Γ,
         ψ.λ[end];
@@ -302,6 +303,30 @@ function canonical!(
         noninjective,
         symmetry_break,
     )
+    # When truncation changes any bond dimension, the per-bond SVDs in
+    # tensor_decomp! leave the state only approximately right-canonical: the
+    # discarded singular modes break the matrix identity that the per-site
+    # U-factor rescaling relies on for its gauge. A second `schmidt_canonical`
+    # pass on the already-truncated state restores the exact gauge.
+    #
+    # A cheaper LQ-sweep gauge restoration was prototyped (see
+    # bench/bench_canonical_truncation.jl history) and found to produce a
+    # state with 1e-4 lower fidelity to the input than the full re-pass: the
+    # singular factor `S` left at the wrap bond after the LQ sweep cannot be
+    # absorbed back into either bordering site without breaking the
+    # per-site right-isometric condition, so dropping it changes the physical
+    # state. The full re-pass remains the correct algorithm.
+    if length.(ψ.λ) != bond_dims_before
+        ψ.Γ[:], ψ.λ[:] = schmidt_canonical(
+            ψ.Γ,
+            ψ.λ[end];
+            maxdim,
+            cutoff,
+            renormalize,
+            noninjective=noninjective == :error ? :error : :ignore,
+            symmetry_break=:none,
+        )
+    end
     return ψ
 end
 
@@ -336,17 +361,19 @@ Notes:
 function getindex(mps::iMPS{T,S}, i::Integer) where {T,S}
     i = mod(i-1, mps.n) + 1
     Γ = copy(mps.Γ[i])
-    λ = mps.λ[i]
+    λ_internal = mps.λ[i]
     # Divide out the right Schmidt values in-place, avoiding the allocation
     # of a full reciprocal vector.
     β = size(Γ, 3)
     Γ_reshaped = reshape(Γ, :, β)
-    tol = _support_tol(λ; atol=ZEROTOL, rtol=zero(S))
+    tol = _support_tol(λ_internal; atol=ZEROTOL, rtol=zero(S))
     for j in 1:β
-        scale = abs(λ[j]) > tol ? inv(λ[j]) : zero(S)
+        scale = abs(λ_internal[j]) > tol ? inv(λ_internal[j]) : zero(S)
         @inbounds Γ_reshaped[:, j] .*= scale
     end
-    Γ, λ
+    # Return a copy of the Schmidt vector so callers cannot accidentally mutate
+    # the iMPS's internal state.
+    Γ, copy(λ_internal)
 end
 #---------------------------------------------------------------------------------------------------
 """
@@ -371,9 +398,9 @@ function mps_promote_type(
     T::DataType,
     mps::iMPS
 )
-    Γ, λ, n = get_data(mps)
-    Γ_new = Array{T}.(Γ)
-    iMPS(Γ_new, λ, n)
+    Γ_new = Array{T}.(mps.Γ)
+    λ_new = [copy(s) for s in mps.λ]
+    iMPS(Γ_new, λ_new, mps.n)
 end
 #---------------------------------------------------------------------------------------------------
 """
@@ -469,8 +496,9 @@ Notes:
   vectors.
 """
 function conj(mps::iMPS)
-    Γ, λ, n = get_data(mps)
-    iMPS(conj.(Γ), λ, n)
+    Γ_new = [conj(B) for B in mps.Γ]
+    λ_new = [copy(s) for s in mps.λ]
+    iMPS(Γ_new, λ_new, mps.n)
 end
 
 #---------------------------------------------------------------------------------------------------

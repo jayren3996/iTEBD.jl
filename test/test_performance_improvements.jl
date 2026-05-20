@@ -1,6 +1,9 @@
 using Test
 using LinearAlgebra
+using Random
 using iTEBD
+
+Random.seed!(20260521)
 
 if !isdefined(Main, :TestUtils)
     include(joinpath(@__DIR__, "test_utils.jl"))
@@ -191,8 +194,9 @@ end
     psi = iTEBD.iMPS([B], [λ], 1)
 
     Γ, returned_λ = psi[1]
-    
-    @test returned_λ === psi.λ[1]
+
+    @test returned_λ == psi.λ[1]
+    @test returned_λ !== psi.λ[1]  # copy, not aliased
     @test Γ[1, 1, 1] ≈ 1.0 atol=1e-12
     @test Γ[1, 2, 2] ≈ 1.0 atol=1e-12
     @test Γ[2, 1, 1] ≈ 0.3 atol=1e-12
