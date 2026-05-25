@@ -144,3 +144,43 @@ end
     @test entanglement_entropy([0.5, 0.5]) ≈ log(2) atol=1e-12
     @test entanglement_entropy([0.5, 0.5, 1e-12]; cutoff=1e-10) ≈ log(2) atol=1e-12
 end
+
+@testset "ENT_S_PRODUCT_STATE_IS_ZERO" begin
+    # Product states have Schmidt rank 1, so the bipartite entropy across
+    # every bond is zero.
+    ψ = product_iMPS(ComplexF64, [[1, 0], [0, 1]])
+    @test ent_S(ψ, 1) ≈ 0.0 atol=1e-12
+    @test ent_S(ψ, 2) ≈ 0.0 atol=1e-12
+end
+
+@testset "ENT_S_MAXIMALLY_ENTANGLED_PAIR_IS_LOG2" begin
+    # A 1-site unit cell representing the (|00⟩ + |11⟩)/√2 repeating pattern
+    # has uniform Schmidt λ = [1/√2, 1/√2] on every bond, so the bipartite
+    # entropy is log 2.
+    B = zeros(ComplexF64, 2, 2, 2)
+    B[1, 1, 1] = inv(sqrt(2))
+    B[2, 2, 2] = inv(sqrt(2))
+    λ = [inv(sqrt(2)), inv(sqrt(2))]
+    ψ = iMPS([B], [λ], 1)
+    @test ent_S(ψ, 1) ≈ log(2) atol=1e-12
+end
+
+@testset "ENERGY_SPAN_BRACKETS_HEISENBERG" begin
+    # energy_span runs short imaginary-time iTEBD with exp(±dτ h) starting
+    # from random unit cells. The two returned energies should bracket the
+    # one-site-cell expectation of |↑↓⟩ under spin-1/2 Heisenberg.
+    Sx = 0.5 * ComplexF64[0 1; 1 0]
+    Sy = 0.5 * ComplexF64[0 -im; im 0]
+    Sz = 0.5 * ComplexF64[1 0; 0 -1]
+    h = real(kron(Sx, Sx) + kron(Sy, Sy)) + real(kron(Sz, Sz))
+
+    Emin, Emax, (ψ_min, ψ_max) = energy_span(2, 2, h; dτ=0.05, Nτ=200, maxdim=8)
+    @test Emin <= Emax
+    @test ψ_min.n == 2 && ψ_max.n == 2
+    @test size(ψ_min.Γ[1], 2) == 2 && size(ψ_max.Γ[1], 2) == 2
+    # Spin-1/2 Heisenberg per-bond ground-state energy is exactly -ln(2) + 1/4
+    # ≈ -0.4431; the search should reach close to it under imaginary time.
+    @test Emin <= -0.30
+    # And the high-energy end should be positive (well above the GS).
+    @test Emax >= 0.0
+end

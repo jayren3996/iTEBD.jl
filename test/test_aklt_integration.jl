@@ -30,7 +30,7 @@ end
     evolve!(psi, [(G, 1, 2), (G, 2, 1)], AKLT_STEPS; maxdim=rdim, truncerr=1e-10)
     canonical!(psi; maxdim=rdim)
 
-    @test iTEBD.inner_product(psi, aklt) > 0.999
+    @test iTEBD.inner_product(psi, aklt) > 1 - 1e-6
     @test all(size(Γ, 2) == 3 for Γ in psi.Γ)
     @test all(1 <= length(λ) <= rdim for λ in psi.λ)
     @test all(isapprox(norm(λ), 1.0; atol=1e-8) for λ in psi.λ)
@@ -45,7 +45,7 @@ end
     evolve!(psi, [(G, 1, 2), (G, 2, 3), (G, 3, 1)], AKLT_STEPS; maxdim=rdim, truncerr=1e-10)
     canonical!(psi; maxdim=rdim)
 
-    @test iTEBD.inner_product(psi, aklt) > 0.999
+    @test iTEBD.inner_product(psi, aklt) > 1 - 1e-6
     @test all(size(Γ, 2) == 3 for Γ in psi.Γ)
     @test all(1 <= length(λ) <= rdim for λ in psi.λ)
     @test all(isapprox(norm(λ), 1.0; atol=1e-8) for λ in psi.λ)
