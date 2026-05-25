@@ -8,7 +8,7 @@ Random.seed!(20260525)
 
 @isdefined(iTEBD) || include("../src/iTEBD.jl")
 using .iTEBD: iTEBD, iMPS, rand_iMPS, product_iMPS, canonical!, expect, getindex
-using .iTEBD: MAXDIM, SVDTOL, SORTTOL, ZEROTOL, KRLOV_POWER
+using .iTEBD: MAXDIM, SVDTOL, SORTTOL, ZEROTOL
 
 #-----------------------------------------------------------------------
 # Issue 1: imps2mps converts product iMPS to finite MPS
@@ -55,7 +55,6 @@ end
     @test typeof(SVDTOL) === Float64
     @test typeof(SORTTOL) === Float64
     @test typeof(ZEROTOL) === Float64
-    @test typeof(KRLOV_POWER) === Int
 end
 
 #-----------------------------------------------------------------------
