@@ -109,6 +109,22 @@ end
         noninjective=:error,
         symmetry_break=:auto,
     )
+
+    # noninjective=:error should throw before symmetry_break is considered,
+    # regardless of which symmetry_break value is set. Previously only the
+    # :error+:auto path was tested.
+    @test_throws ArgumentError canonical!(
+        iMPS([copy(G)], [ones(2)], 1);
+        noninjective=:error,
+        symmetry_break=:none,
+    )
+
+    # noninjective=:ignore should silently produce a usable state on the same
+    # degenerate input, with no @warn from the noninjective code path. The
+    # state's tensors and Schmidt vectors should be finite and non-empty.
+    psi_ignore = iMPS([copy(G)], [ones(2)], 1)
+    canonical!(psi_ignore; noninjective=:ignore)
+    _assert_finite_nonempty(psi_ignore)
 end
 
 @testset "NO_BLOCK_CANONICAL_EXPORT" begin
