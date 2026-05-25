@@ -153,6 +153,8 @@ function schmidt_canonical(
     zerotol=ZEROTOL,
     noninjective::Symbol=:warn,
     symmetry_break::Symbol=:none,
+    tol::Union{Nothing,Real}=nothing,
+    maxiter::Union{Nothing,Integer}=nothing,
 )
     _validate_canonical_options(maxdim, cutoff, noninjective, symmetry_break)
     S_in = _sanitize_schmidt_values(S)
@@ -178,6 +180,8 @@ function schmidt_canonical(
                 zerotol,
                 noninjective=:ignore,
                 symmetry_break=:none,
+                tol,
+                maxiter,
             )
         end
     end
@@ -186,7 +190,7 @@ function schmidt_canonical(
     end
 
     # Right eigenvector
-    R = steady_mat(Γ; dir=:r)
+    R = steady_mat(Γ; dir=:r, tol, maxiter)
     er, vr = _positive_eigensystem(R; zerotol)
     bond_dim_r = size(vr, 1)
     if length(er) < bond_dim_r
@@ -198,7 +202,7 @@ function schmidt_canonical(
     iTEBD.tensor_rmul!(Γc, _safe_reciprocal(S_in; atol=ZEROTOL, rtol=0.0))
     Γl = copy(Γc)
     iTEBD.tensor_lmul!(S_in, Γl)
-    L = steady_mat(Γl; dir=:l)
+    L = steady_mat(Γl; dir=:l, tol, maxiter)
     el, vl = _positive_eigensystem(L; zerotol)
     bond_dim_l = size(vl, 1)
     if length(el) < bond_dim_l
@@ -259,6 +263,8 @@ function schmidt_canonical(
     renormalize=false,
     noninjective::Symbol=:warn,
     symmetry_break::Symbol=:none,
+    tol::Union{Nothing,Real}=nothing,
+    maxiter::Union{Nothing,Integer}=nothing,
 )
     n = length(Γs)
     Γ_grouped = tensor_group(Γs)
@@ -271,6 +277,8 @@ function schmidt_canonical(
         renormalize,
         noninjective,
         symmetry_break,
+        tol,
+        maxiter,
     )
     if isone(n)
         Dl, d, Dr = size(A)

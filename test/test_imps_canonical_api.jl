@@ -64,6 +64,20 @@ end
     @test Γ[2, 2, 2] ≈ 1.0 atol=1e-12
 end
 
+@testset "CANONICAL_ACCEPTS_KRYLOV_KWARGS" begin
+    # The tol/maxiter kwargs were previously not exposed on canonical!.
+    # Verify they're accepted, plumb through to schmidt_canonical, and that
+    # tight/loose tolerances both produce a usable canonical state on a
+    # large-enough cell that the Krylov path actually runs (a > 8).
+    psi = rand_iMPS(ComplexF64, 1, 2, 16)
+    canonical!(psi; tol=1e-14)
+    @test isapprox(iTEBD.inner_product(psi), 1.0; atol=1e-10)
+
+    psi2 = rand_iMPS(ComplexF64, 1, 2, 16)
+    canonical!(psi2; tol=1e-8, maxiter=200)
+    @test isapprox(iTEBD.inner_product(psi2), 1.0; atol=1e-6)
+end
+
 @testset "CANONICAL_ARGUMENT_VALIDATION" begin
     psi = product_iMPS(ComplexF64, [[1, 0]])
 

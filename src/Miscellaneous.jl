@@ -199,16 +199,7 @@ function inner_product(
     _dominant_chain_eigenvalue(T1s, T2s; kwargs...)
 end
 
-# Build a NamedTuple of only the user-supplied Krylov options, leaving the
-# rest at KrylovKit's defaults. Keeps the eigsolve call site readable and
-# avoids hard-coding KrylovKit's internal default values here.
-function _krylov_opts(; tol::Union{Nothing,Real}=nothing,
-                       maxiter::Union{Nothing,Integer}=nothing)
-    opts = NamedTuple()
-    isnothing(tol)     || (opts = merge(opts, (; tol)))
-    isnothing(maxiter) || (opts = merge(opts, (; maxiter)))
-    return opts
-end
+# `_krylov_opts` lives in src/Krylov.jl (loaded earlier in the include chain).
 
 # Threshold below which the dense `gtrm + eigen` path is competitive with the
 # matrix-free Krylov sweep. For χ ≤ 8 the Arnoldi startup overhead matches or

@@ -1,6 +1,19 @@
 #---------------------------------------------------------------------------------------------------
 # Eigen system using Arnodi
 #---------------------------------------------------------------------------------------------------
+
+# Helper for forwarding optional Krylov tolerances into `eigsolve` while
+# preserving KrylovKit's defaults when the user does not override them.
+# Defined here (the first file with a Krylov caller) so downstream files in
+# the include chain can reuse it.
+function _krylov_opts(; tol::Union{Nothing,Real}=nothing,
+                       maxiter::Union{Nothing,Integer}=nothing)
+    opts = NamedTuple()
+    isnothing(tol)     || (opts = merge(opts, (; tol)))
+    isnothing(maxiter) || (opts = merge(opts, (; maxiter)))
+    return opts
+end
+
 """
     kraus(KL, KU, ρ; dir=:r)
 
@@ -110,6 +123,8 @@ function krylov_eigen(
     ρ0::Union{AbstractMatrix, Nothing}=nothing;
     dir::Symbol=:r,
     project_psd::Bool=false,
+    tol::Union{Nothing,Real}=nothing,
+    maxiter::Union{Nothing,Integer}=nothing,
 )
     input_shape, output_shape = _krylov_fixed_point_shapes(KL, KU; dir)
     prod(input_shape) == prod(output_shape) ||
@@ -133,7 +148,8 @@ function krylov_eigen(
         vec(ρ0)
     end
 
-    vals, vecs, info = eigsolve(f, v0, 1, :LM; ishermitian=false)
+    opts = _krylov_opts(; tol, maxiter)
+    vals, vecs, info = eigsolve(f, v0, 1, :LM; ishermitian=false, opts...)
     if info.converged < 1
         @warn "Krylov eigen solver did not converge" info
     end
@@ -197,7 +213,12 @@ Notes:
 - For small bond dimensions a dense eigendecomposition is used; otherwise a
   Krylov solve is used.
 """
-function steady_mat(K::AbstractArray{<:Number, 3}; dir::Symbol=:r)
+function steady_mat(
+    K::AbstractArray{<:Number, 3};
+    dir::Symbol=:r,
+    tol::Union{Nothing,Real}=nothing,
+    maxiter::Union{Nothing,Integer}=nothing,
+)
     a, b, _ = size(K)
     # The dense path is O(a^4 * b) to build + O(a^6) for full eigen, while the
     # Krylov path costs ~k_arn * a^3 * b per matvec. Crossover is at a^3 ≈ k * b
@@ -213,7 +234,7 @@ function steady_mat(K::AbstractArray{<:Number, 3}; dir::Symbol=:r)
         v = reshape(vecs[:,idx], a, a)
         real(tr(v)) < 0 ? -v : v
     else
-        krylov_eigen(K, conj(K); dir, project_psd=true)[2]
+        krylov_eigen(K, conj(K); dir, project_psd=true, tol, maxiter)[2]
     end
     # Explicitly symmetrize before wrapping in Hermitian
     vec = (vec + vec') / 2
@@ -242,12 +263,14 @@ Notes:
 """
 function fixed_point_mat(
     K::AbstractArray{<:Number, 3};
-    dir::Symbol=:r
+    dir::Symbol=:r,
+    tol::Union{Nothing,Real}=nothing,
+    maxiter::Union{Nothing,Integer}=nothing,
 )
     α = size(K, 1)
     ρ0 = rand(ComplexF64, α, α)
     ρ0 = ρ0 * ρ0'
     ρ0 ./= tr(ρ0)
-    _, vec = krylov_eigen(K, conj(K), ρ0; dir, project_psd=true)
+    _, vec = krylov_eigen(K, conj(K), ρ0; dir, project_psd=true, tol, maxiter)
     vec |> Hermitian
 end

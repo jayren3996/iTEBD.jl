@@ -320,6 +320,8 @@ function canonical!(
     renormalize=true,
     noninjective::Symbol=:warn,
     symmetry_break::Symbol=:none,
+    tol::Union{Nothing,Real}=nothing,
+    maxiter::Union{Nothing,Integer}=nothing,
 )
     _validate_canonical_options(maxdim, cutoff, noninjective, symmetry_break)
     bond_dims_before = length.(ψ.λ)
@@ -331,6 +333,8 @@ function canonical!(
         renormalize,
         noninjective,
         symmetry_break,
+        tol,
+        maxiter,
     )
     # When truncation changes any bond dimension, the per-bond SVDs in
     # tensor_decomp! leave the state only approximately right-canonical: the
@@ -354,6 +358,8 @@ function canonical!(
             renormalize,
             noninjective=noninjective == :error ? :error : :ignore,
             symmetry_break=:none,
+            tol,
+            maxiter,
         )
     end
     return ψ
