@@ -105,3 +105,58 @@ end
     val2 = expect(ψ, kron(Z, Z), 2, 1)
     @test val2 ≈ -1.0 atol=1e-12
 end
+
+#-----------------------------------------------------------------------
+# Issue 7: iMPS inner constructor invariants
+#
+# The inner constructor enforces (a) length(Γ) == length(λ) == n > 0,
+# (b) size(Γ[i], 3) == length(λ[i]) and matches size(Γ[i+1], 1) at the
+# wraparound seam, and (c) λ are finite and non-negative.
+#-----------------------------------------------------------------------
+@testset "IMPS_INNER_CONSTRUCTOR_VALID_INPUTS_OK" begin
+    Γ = [randn(ComplexF64, 2, 2, 3), randn(ComplexF64, 3, 2, 2)]
+    λ = [ones(3), ones(2)]
+    ψ = iMPS(Γ, λ, 2)
+    @test ψ.n == 2
+    @test length(ψ.Γ) == 2
+    @test length(ψ.λ) == 2
+end
+
+@testset "IMPS_INNER_CONSTRUCTOR_REJECTS_LENGTH_MISMATCH" begin
+    Γ = [randn(ComplexF64, 2, 2, 2)]
+    λ = [ones(2), ones(2)]
+    @test_throws ArgumentError iMPS(Γ, λ, 2)  # length(Γ) != n
+    @test_throws ArgumentError iMPS(Γ, λ, 1)  # length(λ) != n
+end
+
+@testset "IMPS_INNER_CONSTRUCTOR_REJECTS_NONPOSITIVE_N" begin
+    @test_throws ArgumentError iMPS(Array{ComplexF64, 3}[], Vector{Float64}[], 0)
+    @test_throws ArgumentError iMPS(Array{ComplexF64, 3}[], Vector{Float64}[], -1)
+end
+
+@testset "IMPS_INNER_CONSTRUCTOR_REJECTS_BOND_DIM_MISMATCH" begin
+    # size(Γ[1], 3) = 3 but size(Γ[2], 1) = 5 — fails at wraparound seam.
+    Γ = [randn(ComplexF64, 2, 2, 3), randn(ComplexF64, 5, 2, 2)]
+    λ = [ones(3), ones(2)]
+    @test_throws DimensionMismatch iMPS(Γ, λ, 2)
+
+    # length(λ[1]) = 4 but size(Γ[1], 3) = 3 — fails λ vs Γ check.
+    Γ2 = [randn(ComplexF64, 2, 2, 3), randn(ComplexF64, 3, 2, 2)]
+    λ2 = [ones(4), ones(2)]
+    @test_throws DimensionMismatch iMPS(Γ2, λ2, 2)
+end
+
+@testset "IMPS_INNER_CONSTRUCTOR_REJECTS_BAD_SCHMIDT_VALUES" begin
+    Γ = [randn(ComplexF64, 2, 2, 2), randn(ComplexF64, 2, 2, 2)]
+    @test_throws ArgumentError iMPS(Γ, [Float64[1.0, -0.5], Float64[1.0, 1.0]], 2)
+    @test_throws ArgumentError iMPS(Γ, [Float64[1.0, NaN], Float64[1.0, 1.0]], 2)
+    @test_throws ArgumentError iMPS(Γ, [Float64[1.0, Inf], Float64[1.0, 1.0]], 2)
+end
+
+@testset "IMPS_INNER_CONSTRUCTOR_REJECTS_RAW_BAD_TENSOR_LIST" begin
+    # The outer iMPS(T, Γs; renormalize=false) constructor must also surface
+    # the inner-constructor's invariants — previously this path produced a
+    # silently malformed state.
+    Γs = [randn(ComplexF64, 2, 2, 3), randn(ComplexF64, 5, 2, 2)]
+    @test_throws DimensionMismatch iMPS(ComplexF64, Γs; renormalize=false)
+end

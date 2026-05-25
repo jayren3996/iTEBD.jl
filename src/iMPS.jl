@@ -35,6 +35,35 @@ struct iMPS{T<:Number, S<:Real}
     Γ::Vector{Array{T, 3}}
     λ::Vector{Vector{S}}
     n::Int
+
+    function iMPS(
+        Γ::Vector{Array{T, 3}},
+        λ::Vector{Vector{S}},
+        n::Integer,
+    ) where {T<:Number, S<:Real}
+        n > 0 || throw(ArgumentError(
+            "iMPS unit-cell length n must be positive (got $n)"))
+        length(Γ) == n || throw(ArgumentError(
+            "iMPS: length(Γ) = $(length(Γ)) but n = $n"))
+        length(λ) == n || throw(ArgumentError(
+            "iMPS: length(λ) = $(length(λ)) but n = $n"))
+        for i in 1:n
+            Dr_i = size(Γ[i], 3)
+            Dl_next = size(Γ[mod1(i + 1, n)], 1)
+            length(λ[i]) == Dr_i || throw(DimensionMismatch(
+                "iMPS bond $i: length(λ[$i]) = $(length(λ[i])) " *
+                "but size(Γ[$i], 3) = $Dr_i"))
+            Dr_i == Dl_next || throw(DimensionMismatch(
+                "iMPS bond $i: size(Γ[$i], 3) = $Dr_i but " *
+                "size(Γ[$(mod1(i + 1, n))], 1) = $Dl_next " *
+                "(bond dims must match at the wraparound seam)"))
+            all(isfinite, λ[i]) || throw(ArgumentError(
+                "iMPS λ[$i] contains non-finite values"))
+            any(<(zero(S)), λ[i]) && throw(ArgumentError(
+                "iMPS λ[$i] contains negative values"))
+        end
+        return new{T,S}(Γ, λ, Int(n))
+    end
 end
 #---------------------------------------------------------------------------------------------------
 """
