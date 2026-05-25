@@ -1,61 +1,89 @@
+```@raw html
+<div style="text-align: center; margin-bottom: 1.5rem;">
+  <img src="assets/logo.svg" alt="iTEBD.jl" width="160"/>
+</div>
+```
+
 # iTEBD.jl
 
 `iTEBD.jl` is a Julia package for infinite time-evolving block decimation on
-translationally invariant one-dimensional systems.
+translationally invariant one-dimensional quantum systems. It targets the
+thermodynamic limit directly: instead of a long finite chain with open or
+periodic boundaries, you specify a periodic unit cell and the package works
+with the resulting infinite matrix-product state. This is convenient when the
+quantity you care about (entanglement structure, bulk energy density, scar
+trajectories) is defined per unit cell rather than for a particular system
+size.
 
-The package is built around a compact `iMPS` representation and currently
-focuses on stable workflows:
+The package deliberately stays narrow. It does not implement finite-size DMRG,
+mixed boundary conditions, or symmetric tensors, and it assumes the injective
+setting throughout canonicalization. If you need any of those, a finite-MPS
+package such as `ITensors.jl` is a better starting point. What you do get here
+is a compact `iMPS` type, explicit control over truncation and Trotter order,
+and a ScarFinder routine for low-entanglement search inside the iMPS manifold.
 
-- finite-unit-cell infinite matrix-product states,
-- Schmidt canonicalization in the injective setting,
-- local gate-based real- and imaginary-time evolution,
-- high-level gate sweeps with fixed or adaptive bond-dimension control,
-- basic transfer-matrix observables,
-- ScarFinder routines for low-entanglement state searches.
+## Manual layout
 
-## What This Manual Covers
+The manual is organized around the package's main workflows. Each page is
+written for human readers and emphasizes conventions, caveats, and runnable
+examples; the API reference is generated from the docstrings and lists exact
+signatures and defaults.
 
-This manual is organized around the package's main workflows:
+- [Getting Started](getting-started.md) covers installation and how to build a
+  first state with `rand_iMPS` or `product_iMPS`.
+- [iMPS and Canonical Form](imps.md) explains the storage convention — in
+  particular, that `ψ.Γ[i]` holds the right-canonical tensor `B_i = Γ_i λ_i`
+  rather than the bare Vidal `Γ_i` — and what `canonical!` does to a state.
+- [Time Evolution](time-evolution.md) describes `applygate!` for single
+  updates, `evolve!` for repeated sweeps, the layered Trotter interface
+  (`:second`, `:fourth`, `:fourth_opt`), and the adaptive bond-dimension
+  helpers `natural_bonddim` and `adaptive_bonddim`.
+- [Observables](observables.md) covers transfer-matrix overlaps with
+  `inner_product`, expectation values with `expect`, entanglement entropy with
+  `ent_S`, and `energy_density` / `energy_span` for local Hamiltonians.
+- [ScarFinder](scarfinder.md) documents the three `scarfinder!` interfaces
+  (Hamiltonian, gate, mixed), how the two time scales `dt` and `nstep` combine,
+  and a complete PXP example.
+- [API Reference](api.md) gives the docstring-driven signature list, including
+  keyword defaults and the constants `MAXDIM` and `SVDTOL`.
 
-- [Getting Started](getting-started.md) for installation and a first state.
-- [iMPS and Canonical Form](imps.md) for the package's tensor convention.
-- [Time Evolution](time-evolution.md) for local gate updates and adaptive
-  bond-dimension sweeps.
-- [Observables](observables.md) for overlaps and energy densities.
-- [ScarFinder](scarfinder.md) for low-entanglement search workflows.
-- [API Reference](api.md) for docstring-driven function reference.
+A reasonable reading order for a new user is Getting Started → iMPS and
+Canonical Form → Time Evolution → Observables, then ScarFinder if you need the
+low-entanglement search routines and the API Reference when you want exact
+signatures.
 
-The intended split is:
+## A minimal example
 
-- the markdown manual pages are written for human readers and emphasize
-  motivation, conventions, caveats, and workflow examples;
-- the generated API reference is written from the source docstrings and is
-  intentionally more explicit about signatures, argument meanings, return
-  values, and internal conventions.
-
-If you are new to the package, a good reading order is:
-
-1. [Getting Started](getting-started.md)
-2. [States and Canonical Form](imps.md)
-3. [Time Evolution](time-evolution.md)
-4. [Observables](observables.md)
-5. [ScarFinder Workflow](scarfinder.md) if you need the low-entanglement search
-   routines
-6. [API Reference](api.md) when you want exact signatures and keyword defaults
-
-## A Minimal Example
+The snippet below builds a random two-site unit cell with bond dimension 4,
+brings it to Schmidt-canonical form, and inspects the leading Schmidt spectrum.
+For a random initial state the dominant Schmidt value is close to 1 and the
+rest of the spectrum is small, which is what `canonical!` exposes by rotating
+the gauge into the Schmidt basis on every bond.
 
 ```@example
 using iTEBD
 
 psi = rand_iMPS(ComplexF64, 2, 2, 4)
 canonical!(psi)
-length(psi.Γ), length(psi.λ)
+
+(;
+    n_sites = length(psi.Γ),
+    n_bonds = length(psi.λ),
+    lambda1 = psi.λ[1],
+)
 ```
 
-## Package Scope
+After `canonical!`, the stored tensors `psi.Γ[i]` are right-canonical and the
+entanglement structure on each bond is carried explicitly by `psi.λ[i]`. See
+[iMPS and Canonical Form](imps.md) for the full convention and
+[Time Evolution](time-evolution.md) for how local gates are applied on top of
+this representation.
 
-`iTEBD.jl` stays intentionally direct and low-level. You specify the unit cell,
-the local operators, and the truncation settings explicitly, which keeps the
-package flexible for exploratory tensor-network work and custom ScarFinder
-protocols.
+## Package scope
+
+`iTEBD.jl` is intentionally direct. You specify the unit cell, the local
+operators, and the truncation settings (`maxdim`, `cutoff`) explicitly. There
+is no automatic Hamiltonian builder, no symmetry sectors, and no abelian or
+non-abelian quantum-number bookkeeping. That keeps the package small enough to
+read end-to-end and flexible for exploratory tensor-network work and custom
+ScarFinder protocols.

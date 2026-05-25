@@ -1,372 +1,126 @@
-# iTEBD.jl
+<p align="center">
+  <img src="docs/src/assets/logo.svg" alt="iTEBD.jl" width="180"/>
+</p>
 
-[![Docs](https://img.shields.io/badge/docs-Documenter-blue.svg)](https://jayren3996.github.io/iTEBD.jl/dev/)
+<h1 align="center">iTEBD.jl</h1>
 
-`iTEBD.jl` is a Julia package for infinite time-evolving block decimation on
-translationally invariant one-dimensional systems.
+<p align="center">
+  <em>Infinite time-evolving block decimation for translationally invariant 1D quantum systems.</em>
+</p>
 
-The package is built around a compact `iMPS` representation and provides:
+<p align="center">
+  <a href="https://jayren3996.github.io/iTEBD.jl/dev/"><img alt="Documentation (dev)" src="https://img.shields.io/badge/docs-dev-blue.svg"/></a>
+  <a href="https://github.com/jayren3996/iTEBD.jl/actions/workflows/documentation.yml"><img alt="Documentation build status" src="https://github.com/jayren3996/iTEBD.jl/actions/workflows/documentation.yml/badge.svg"/></a>
+  <a href="https://julialang.org/"><img alt="Julia" src="https://img.shields.io/badge/made%20with-Julia-9558B2.svg?logo=julia"/></a>
+</p>
 
-- infinite matrix-product states with a finite unit cell,
-- gate-based real- and imaginary-time evolution,
-- Schmidt canonicalization and basic transfer-matrix observables,
-- a ScarFinder workflow for low-entanglement state searches,
-- a mixed `gate + Hamiltonian` ScarFinder interface for constrained models such as PXP.
+---
+
+`iTEBD.jl` targets the thermodynamic limit directly. Instead of running on a long finite chain, you specify a periodic unit cell and the package works with the resulting infinite matrix-product state. That makes it a natural fit when the quantity of interest (entanglement structure, bulk energy density, scar trajectories) is defined per unit cell rather than for a particular system size.
+
+The package stays narrow on purpose. It does not implement finite-size DMRG, mixed boundary conditions, or symmetric tensors, and it assumes the injective setting throughout canonicalization. If you need any of those, [`ITensors.jl`](https://github.com/ITensor/ITensors.jl) is a better starting point.
 
 ## Installation
 
-Install from a Julia REPL:
+From a Julia REPL:
 
 ```julia
 pkg> add https://github.com/jayren3996/iTEBD.jl
 ```
 
-Then load the package with:
+Then load it with `using iTEBD`.
 
-```julia
-using iTEBD
-```
+## Quick start
 
-## Core Ideas
-
-### `iMPS`
-
-An `iMPS` stores one periodic unit cell of an infinite matrix-product state:
-
-- `Γ`: local tensors,
-- `λ`: Schmidt values on each bond,
-- `n`: number of sites in the unit cell.
-
-This package uses a right-canonical convention in which the right Schmidt values
-are absorbed into each local tensor. After calling `canonical!`, the entanglement
-structure is stored in `λ` and the local tensors are right-canonical.
-
-More explicitly, the stored tensors are
-$$
-B_i = \Gamma_i \lambda_i,
-$$
-so `ψ.Γ[i]` is the right-canonical tensor $B_i$, not the bare Vidal tensor.
-The accessor `ψ[i]` returns the bare Vidal tensor $\Gamma_i$ together with
-`λ[i]`.
-
-That distinction is important when comparing the package data layout with the
-standard iTEBD literature, where the symbol `Γ_i` usually refers to the bare
-Vidal tensor rather than the stored right-canonical tensor.
-
-### Local Gates
-
-Time evolution is implemented by repeatedly applying a local gate:
-
-```julia
-applygate!(ψ, G, i, j;
-           maxdim=MAXDIM, mindim=1,
-           truncerr=0.0, svd_min=SVDTOL,
-           renormalize=true, return_stats=false)
-```
-
-where:
-
-- `ψ` is an `iMPS`,
-- `G` is a dense local operator,
-- `i:j` specifies the contiguous support inside the periodic unit cell,
-- `maxdim` is the hard cap on the kept bond dimension,
-- `mindim` is the minimum kept bond dimension,
-- `truncerr` is the target local discarded weight per bond,
-- `svd_min` is an absolute singular-value floor (`cutoff` is accepted as a
-  deprecated alias),
-- `return_stats=true` makes `applygate!` return `(ψ, stats)` with per-bond
-  truncation diagnostics instead of just mutating `ψ`.
-
-See [`docs/src/truncation-note.md`](docs/src/truncation-note.md) for the full
-controller semantics.
-
-## Main API
-
-These are the entry points you are most likely to use:
-
-- `iMPS(Γs; renormalize=true)`
-- `rand_iMPS(T, n, d, dim)`
-- `product_iMPS(vectors)`
-- `canonical!(ψ; maxdim=MAXDIM, cutoff=SVDTOL, renormalize=true)`
-- `applygate!(ψ, G, i, j; ...)`
-- `evolve!(ψ, gates, steps; chi_policy=:fixed, ...)` — gate-list sweep
-- `evolve!(ψ, layers, dt, steps; trotter=:second, evolution=:real, ...)` —
-  Trotter macro-step from commuting Hamiltonian layers
-- `trotter_gates(layers, dt; trotter=:second, evolution=:real)`
-- `inner_product(ψ1, ψ2)`
-- `expect(ψ, O, i, j)`
-- `ent_S(ψ, i)`
-- `energy_density(ψ, h; span=...)`
-- `energy_span(n, d, h; ...)`
-- `scarfinder_step!`
-- `scarfinder!`
-- `natural_bonddim(λ; q=1.0, alpha=0.1)`
-- `adaptive_bonddim(previous, λ; mindim, maxdim, q=1.0, alpha=0.1)`
-
-## Quick Start
-
-### Random State
-
-```julia
-using iTEBD
-
-psi = rand_iMPS(ComplexF64, 2, 2, 4)
-```
-
-This creates a random two-site unit-cell state with local dimension `2` and
-bond dimension `4`.
-
-To inspect the bare Vidal tensor on site `1`, use:
-
-```julia
-Gamma1, lambda1 = psi[1]
-```
-
-### Product State
-
-```julia
-using iTEBD
-
-psi = product_iMPS(ComplexF64, [[0, 1], [1, 0], [0, 1], [1, 0]])
-```
-
-This is the $Z_2$ product state on a four-site unit cell.
-
-### Imaginary-Time AKLT Example
+Imaginary-time iTEBD relaxes a random spin-1 state into the AKLT ground state in about a hundred Trotter steps:
 
 ```julia
 using iTEBD, LinearAlgebra
 
-X = sqrt(2) / 2 * [0 1 0; 1 0 1; 0 1 0]
-Y = sqrt(2) / 2 * 1im * [0 -1 0; 1 0 -1; 0 1 0]
+# Spin-1 operators
+X = sqrt(2)/2 * [0 1 0; 1 0 1; 0 1 0]
+Y = sqrt(2)/2 * 1im * [0 -1 0; 1 0 -1; 0 1 0]
 Z = [1 0 0; 0 0 0; 0 0 -1]
 
-H = begin
-    SS = kron(X, X) + kron(Y, Y) + kron(Z, Z)
-    0.5 * SS + SS^2 / 6 + I / 3
-end
+# AKLT bilinear-biquadratic Hamiltonian density
+SS = kron(X, X) + kron(Y, Y) + kron(Z, Z)
+H  = 0.5 * SS + SS^2 / 6 + I / 3
 
-G = exp(-0.1 * H)
-psi = rand_iMPS(ComplexF64, 2, 3, 1)
+# Two-site unit cell, imaginary-time evolution
+psi   = rand_iMPS(ComplexF64, 2, 3, 1)
+gates = [(exp(-0.1 * H), 1, 2), (exp(-0.1 * H), 2, 1)]
+evolve!(psi, gates, 300; maxdim=8)
 
-for _ in 1:300
-    applygate!(psi, G, 1, 2; maxdim=8)
-    applygate!(psi, G, 2, 1; maxdim=8)
-end
+energy_density(psi, H)         # → ≈ 0.0  (AKLT ground state)
+maximum(length.(psi.λ))        # → 2      (converged bond dimension)
 ```
 
-### Adaptive Bond-Dimension Heuristic
+A walkthrough of this example with more diagnostics is on the [Time Evolution](https://jayren3996.github.io/iTEBD.jl/dev/time-evolution/) page.
 
-Continuing from the AKLT setup above, if you want a non-decreasing bond
-dimension that adapts to the current Schmidt spectrum, you can use the
-high-level evolution wrapper directly:
+## Features
 
-```julia
-using iTEBD
+- Infinite matrix-product states with arbitrary periodic unit cells.
+- Local-gate updates with a discarded-weight truncation controller (`applygate!`, `evolve!`).
+- Trotter helpers for second-order Strang splitting and two fourth-order schemes (`trotter_gates`).
+- Schmidt canonicalization in the injective setting (`canonical!`).
+- Transfer-matrix overlaps, multi-site expectation values, entanglement entropy, energy density (`inner_product`, `expect`, `ent_S`, `energy_density`, `energy_span`).
+- ScarFinder workflow for low-entanglement state search, with Hamiltonian, gate, and mixed `gate + Hamiltonian` interfaces (`scarfinder!`).
+- Optional adaptive bond-dimension policy as a ratchet on bond growth (`adaptive_bonddim`, `natural_bonddim`).
 
-gates = [(G, 1, 2), (G, 2, 1)]
+## iMPS convention
 
-evolve!(psi, gates, 100; chi_policy=:adaptive, maxdim=64)
+The single rule to remember: **the stored tensor has the right Schmidt values already multiplied in.** Formally, after `canonical!`,
+
+```
+B_i = Γ_i · λ_i
 ```
 
-The helper `natural_bonddim(λ; q=1.0, alpha=0.1)` first normalizes the Schmidt
-weights,
-
-```math
-p_i = \frac{|\lambda_i|^2}{\sum_j |\lambda_j|^2},
-```
-
-then defines a smooth effective rank
-
-```math
-r_q =
-\begin{cases}
-\exp\!\left(-\sum_i p_i \log p_i\right), & q = 1, \\
-\left(\sum_i p_i^q\right)^{1/(1-q)}, & q \ne 1,
-\end{cases}
-```
-
-and finally applies a mild tail-weight correction
-
-```math
-\chi_{\mathrm{nat}} = r_q \bigl(1 + \alpha (1 - p_1)\bigr),
-```
-
-where `p_1` is the largest normalized Schmidt weight.
-
-`adaptive_bonddim(previous, λ; mindim, maxdim, ...)` then turns that smooth
-score into the actual bond dimension by ratcheting it between the requested
-bounds:
-
-```math
-\chi_{\mathrm{new}} =
-\min\!\left(\chi_{\max},
-\max\!\left(\chi_{\mathrm{prev}}, \chi_{\min},
-\left\lceil \chi_{\mathrm{nat}} \right\rceil\right)\right).
-```
-
-In this package, the words "aggressive" and "conservative" refer to bond
-truncation:
-
-- aggressive truncation keeps a bond dimension that is too small and can reduce
-  state fidelity;
-- conservative truncation keeps more Schmidt weight and usually improves
-  fidelity at higher cost.
-
-With that convention, the parameter trends are:
-
-- `q = 1` is the entropy-rank rule and is the default recommendation;
-- `q = 2` is the participation ratio / IPR and is more aggressive because it
-  discounts tails more strongly;
-- `q < 1` is more conservative than entropy rank and is useful when `q = 1`
-  still truncates too hard;
-- larger `alpha` is more conservative because it further protects distributed
-  Schmidt tails;
-- `alpha = 0` removes the explicit tail-amplification factor.
-
-The default `q = 1.0, alpha = 0.1` is meant to be a mild, fidelity-oriented
-choice: it keeps the entropy-rank baseline and adds only a small amount of
-extra tail protection.
-
-If you want the old fixed-bond-dimension behavior, use:
-
-```julia
-evolve!(psi, gates, 100; maxdim=8)
-```
+so `psi.Γ[i]` returns the right-canonical tensor `B_i`, not the bare Vidal `Γ_i`. To get the Vidal pair, index the state: `Γ_i, λ_i = psi[i]`. The [States and Canonical Form](https://jayren3996.github.io/iTEBD.jl/dev/imps/) page explains this in detail.
 
 ## ScarFinder
 
-The package includes a general ScarFinder workflow for low-entanglement state
-searches. One ScarFinder iteration in this implementation:
+The package includes a general ScarFinder workflow that searches for low-entanglement, weakly-thermalizing trajectories directly on the iMPS manifold. Each iteration evolves the state for a short real-time interval, projects back to a target bond dimension `χ`, and optionally applies a small imaginary-time correction to hold the energy density near a chosen target.
 
-1. evolves the current iMPS for a short real-time interval,
-2. projects it back to bond dimension `χ`,
-3. optionally applies a small imaginary-time energy correction.
-
-There are three public interfaces:
-
-- Hamiltonian-based:
-  `scarfinder!(ψ, h, dt, χ, N; ...)`
-- Gate-based without energy fixing:
-  `scarfinder!(ψ, G, χ, N; ...)`
-- Gate-based with Hamiltonian energy fixing:
-  `scarfinder!(ψ, G, h, χ, N; ...)`
-
-The second form is especially useful in constrained models where the update rule
-is already given as a local gate, while the third form is the recommended one
-for constrained models where the evolution rule is a projected gate but the
-target energy should still be measured with an underlying Hamiltonian density.
-
-### PXP ScarFinder Example
-
-This is the recommended ScarFinder example for the package.
+Three interfaces are exposed:
 
 ```julia
-using iTEBD, LinearAlgebra
-
-# Projector entering the PXP Hamiltonian.
-P0 = [0 0; 0 1]
-
-# Local excitation projector used for the blockade constraint.
-N1 = [1 0; 0 0]
-
-X = [0 1; 1 0]
-
-# Three-site local PXP Hamiltonian density.
-h_pxp = kron(P0, X, P0)
-
-# Local no-double-excitation projector used to repair truncation artifacts.
-no_double_2 = Matrix{Float64}(I, 4, 4) - kron(N1, N1)
-proj_pxp = kron(no_double_2, I(2)) * kron(I(2), no_double_2)
-
-# Microscopic gate and projected ScarFinder gate.
-dt = 0.01
-G = proj_pxp * exp(-1im * dt * h_pxp)
-
-# Z2 initial state on a four-site unit cell.
-psi = product_iMPS(ComplexF64, [[0, 1], [1, 0], [0, 1], [1, 0]])
-
-# Use the Z2 energy density as the target.
-target = energy_density(psi, h_pxp; span=3)
-
-# If one ScarFinder step is meant to represent Δt = 0.05, use nstep = 5.
-scarfinder!(psi, G, h_pxp, 2, 5;
-    span=3,
-    hspan=3,
-    nstep=5,
-    target=target,
-    maxdim=12,
-    refine=false,
-)
-
-(;
-    target_energy=target,
-    final_energy=energy_density(psi, h_pxp; span=3),
-    maxbond=maximum(length.(psi.λ)),
-)
+scarfinder!(ψ, h, dt, χ, N; ...)    # Hamiltonian-based
+scarfinder!(ψ, G, χ, N; ...)        # gate-based, no energy correction
+scarfinder!(ψ, G, h, χ, N; ...)     # mixed: custom gate G, energy fixed against h
 ```
 
-### Important ScarFinder Notes
-
-- If the gate is built from a microscopic time step $dt$ but each ScarFinder
-  iteration is supposed to represent a larger interval $\Delta t$, choose
-  `nstep ≈ Δt / dt`.
-- As a practical rule, `nstep = 1` is usually too small for ScarFinder because
-  it reduces one iteration to a single microscopic evolution step before
-  projection. The implementation accepts this for backwards compatibility, but
-  now emits a warning when `nstep == 1`.
-- In constrained models such as PXP, the projector used in the ScarFinder gate
-  is often **not** the same object as the projector appearing in the Hamiltonian
-  density. Keeping `G` and `h` separate in the API is intentional.
-- The mixed interface
-  `scarfinder!(ψ, G, h, χ, N; ...)`
-  is the one to use when the evolution rule is gate-based but energy fixing
-  should still be performed with respect to a Hamiltonian density.
-- `χ` is the target bond dimension after each projection step, while `maxdim`
-  is the larger temporary bond dimension used during the real-time evolution.
-- `target`, `tol`, `α`, and `maxstep` control the optional energy-fixing step
-  that compensates for energy drift caused by truncation.
-
-Reference:
-- J. Ren, A. Hallam, L. Ying, and Z. Papić, [ScarFinder: A Detector of Optimal
-  Scar Trajectories in Quantum Many-Body Dynamics](https://eprints.whiterose.ac.uk/id/eprint/238368/),
-  PRX Quantum 6, 040332 (2025).
-
-## Example Notebooks
-
-The `examples/` folder contains runnable notebooks:
-
-- `CanonicalForm.ipynb`
-  canonicalization diagnostics and sanity checks.
-- `AKLT_GS.ipynb`
-  imaginary-time AKLT ground-state evolution.
-- `PXP.ipynb`
-  short-time PXP dynamics from the $Z_2$ product state.
-- `PXP_ScarFinder.ipynb`
-  PXP ScarFinder search using the mixed `gate + Hamiltonian` interface.
-
-Each notebook begins with:
-
-```julia
-import Pkg
-Pkg.activate("..")
-```
-
-so it can be run directly from the repository checkout.
+The mixed form is the recommended one for constrained models like PXP, where the gate carries projectors that repair truncation artifacts while the energy target is defined against the unprojected Hamiltonian density. See the [ScarFinder Workflow](https://jayren3996.github.io/iTEBD.jl/dev/scarfinder/) page for the complete PXP example.
 
 ## Documentation
 
-The package manual is built with Documenter.jl and published at:
+Full manual at <https://jayren3996.github.io/iTEBD.jl/dev/>.
 
-- <https://jayren3996.github.io/iTEBD.jl/dev/>
+- [Getting Started](https://jayren3996.github.io/iTEBD.jl/dev/getting-started/) — installation, the first state, sanity checks.
+- [States and Canonical Form](https://jayren3996.github.io/iTEBD.jl/dev/imps/) — the storage convention, `canonical!`, runnable examples.
+- [Time Evolution](https://jayren3996.github.io/iTEBD.jl/dev/time-evolution/) — `applygate!`, `evolve!`, Trotter order, adaptive bond dimension.
+- [Observables](https://jayren3996.github.io/iTEBD.jl/dev/observables/) — overlaps, expectation values, entropy, energy density.
+- [ScarFinder Workflow](https://jayren3996.github.io/iTEBD.jl/dev/scarfinder/) — the three interfaces, the two time scales, the PXP example.
+- [API Reference](https://jayren3996.github.io/iTEBD.jl/dev/api/) — generated from docstrings.
 
-## Current Scope
+The `examples/` directory contains runnable Jupyter notebooks: `CanonicalForm.ipynb`, `AKLT_GS.ipynb`, `PXP.ipynb`, `PXP_ScarFinder.ipynb`.
 
-`iTEBD.jl` is intentionally fairly direct and low-level. The package assumes:
+## Citation
 
-- dense local operators,
-- explicit control over unit-cell structure,
-- manual selection of gate supports and truncation parameters.
+If the ScarFinder routines are useful in your published work, please cite:
 
-That keeps it flexible for exploratory work, especially for custom ScarFinder
-protocols and constrained dynamics.
+```bibtex
+@article{Ren2025ScarFinder,
+  title   = {ScarFinder: A Detector of Optimal Scar Trajectories in
+             Quantum Many-Body Dynamics},
+  author  = {Ren, Jie and Hallam, Andrew and Ying, Lei and Papi\'c, Zlatko},
+  journal = {PRX Quantum},
+  volume  = {6},
+  pages   = {040332},
+  year    = {2025},
+  doi     = {10.1103/PRXQuantum.6.040332},
+}
+```
+
+## Acknowledgements
+
+`iTEBD.jl` builds on [`ITensors.jl`](https://github.com/ITensor/ITensors.jl) / [`ITensorMPS.jl`](https://github.com/ITensor/ITensorMPS.jl) for tensor-network primitives, [`TensorOperations.jl`](https://github.com/Jutho/TensorOperations.jl) for contractions, and [`KrylovKit.jl`](https://github.com/Jutho/KrylovKit.jl) for the dominant transfer-matrix eigenvalue.

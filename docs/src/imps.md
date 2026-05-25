@@ -1,159 +1,88 @@
-# iMPS and Canonical Form
+# States and canonical form
 
-## What An `iMPS` Stores
+This page covers four things:
 
-An `iMPS` in this package stores one periodic unit cell of an infinite
-matrix-product state:
+1. what an `iMPS` actually stores in memory,
+2. the absorbed-Schmidt convention used throughout the package (the most common source of confusion when comparing with the literature),
+3. what [`canonical!`](@ref) does to a state,
+4. when each truncation keyword matters in practice.
 
-- `ψ.Γ`
-  A vector of local three-leg tensors, one for each site in the unit cell.
-- `ψ.λ`
-  A vector of Schmidt spectra, one for each bond in the unit cell.
-- `ψ.n`
-  The unit-cell length.
+## What an `iMPS` stores
 
-If the unit cell has sites `1, ..., n`, then bond `i` means the bond between
-site `i` and site `i + 1`, with periodic wraparound at the end of the unit
-cell.
+An `iMPS` holds one periodic unit cell of an infinite matrix-product state with three fields:
 
-## Important Convention: Stored `Γ` Is Not The Bare Vidal `Γ`
+- `ψ.Γ` — a vector of three-leg local tensors, one per site of the unit cell.
+- `ψ.λ` — a vector of Schmidt spectra, one per bond. `λ[i]` lives on the bond between site `i` and site `i+1`, with periodic wraparound at the end of the unit cell.
+- `ψ.n` — the unit-cell length.
 
-The most important caveat in this package is that the stored tensor `ψ.Γ[i]`
-is **not** the bare Vidal tensor usually written as `Γ_i` in the iTEBD
-literature.
+The Schmidt spectra are real and non-negative; the local tensors carry the element type of the state (`ComplexF64` by default).
 
-Instead, after canonicalization the package stores the right-canonical tensor
+## The absorbed-Schmidt convention
+
+The single rule to remember:
+
+> **The stored tensor has the right Schmidt values already multiplied in.**
+
+Formally, after canonicalization,
 
 ```math
-B_i = \Gamma_i \lambda_i,
+B_i = \Gamma_i \, \lambda_i,
 ```
 
-where:
+where `Γ_i` is the bare Vidal tensor of site `i` and `λ_i` is the Schmidt spectrum on the bond to its right. The package stores `B_i` (right-canonical), not `Γ_i`:
 
-- `Γ_i`
-  is the bare Vidal tensor for site `i`,
-- `λ_i`
-  is the Schmidt spectrum on the bond to the right of site `i`,
-- `B_i`
-  is the right-canonical tensor actually stored in `ψ.Γ[i]`.
+- `ψ.Γ[i]` returns `B_i`.
+- `ψ.λ[i]` returns `λ_i`.
 
-So the package data layout is:
+So the symbol `Γ` in the struct field is a stored-tensor label and does not refer to the bare Vidal `Γ_i` from Vidal 2007. Most internal contractions ([`expect`](@ref), the transfer-matrix machinery used by `gtrm`, and the overlap in [`inner_product`](@ref)) work directly with `B_i`; reconstructing `Γ_i` is only needed when matching formulas in the literature.
 
-- `ψ.Γ[i] = B_i`
-- `ψ.λ[i] = λ_i`
+## Recovering the bare Vidal tensor
 
-This is why the symbol `Γ` in the struct field should be read as "stored local
-tensor" rather than automatically assuming it is the bare Vidal `Γ_i`.
-
-## How To Recover The Bare Vidal Tensor
-
-If you want the Vidal tensor and the Schmidt values in the more standard form,
-index the state:
+Indexing returns the Vidal pair:
 
 ```julia
-Gamma1, lambda1 = psi[1]
+Γ_i, λ_i = ψ[i]
 ```
 
-This returns:
+This divides the absorbed Schmidt values back out of `ψ.Γ[i]` on the fly and returns a fresh copy of both `Γ_i` and `λ_i` (mutating them does not affect the state). Two related but distinct objects therefore coexist:
 
-- `Gamma1 = Γ_1`
-- `lambda1 = λ_1`
+- `ψ.Γ[i]` — stored right-canonical `B_i`,
+- `ψ[i][1]` — bare Vidal `Γ_i`.
 
-Internally, `ψ[i]` divides the absorbed right Schmidt values back out of the
-stored tensor `ψ.Γ[i]`.
-
-That means there are two different but related objects:
-
-- `psi.Γ[i]`
-  right-canonical stored tensor `B_i`
-- `psi[i][1]`
-  bare Vidal tensor `Γ_i`
-
-This distinction matters whenever you compare formulas in the literature with
-what is stored in memory in `iTEBD.jl`.
-
-## Canonical Form Used Here
-
-After calling `canonical!(ψ)`, the state is in the package's Schmidt-canonical
-representation:
-
-- each stored local tensor `B_i = Γ_i λ_i` is right-canonical,
-- each `ψ.λ[i]` stores the Schmidt values across bond `i`,
-- the entanglement structure is therefore carried explicitly by `ψ.λ`.
-
-Operationally, this means:
-
-- contractions such as `expect(ψ, ...)` are performed directly with the stored
-  tensors `B_i`,
-- bare Vidal tensors are reconstructed only when explicitly requested through
-  `ψ[i]`,
-- local gates can be applied in the stored representation and the result can
-  then be brought back to Schmidt-canonical form.
-
-## What `canonical!` Does
-
-The canonicalization entry point is:
+## What `canonical!` does
 
 ```julia
 canonical!(ψ; maxdim=MAXDIM, cutoff=SVDTOL, renormalize=true)
 ```
 
-This routine:
+The routine groups the unit cell into a single block, solves for the left and right transfer-matrix fixed points, performs the gauge SVD on the effective bond problem, truncates according to `maxdim` and `cutoff`, and writes the right-canonical tensors back into `ψ.Γ` and the Schmidt spectra into `ψ.λ`. If truncation changes any bond dimension, a second pass restores the exact right-canonical gauge that a single truncated SVD only achieves approximately. The state is mutated in place and the same object is returned.
 
-1. groups the unit cell into a single periodic object,
-2. computes the left and right fixed-point gauges needed for a Schmidt-canonical
-   representation,
-3. performs an SVD on the effective bond problem,
-4. truncates according to `maxdim` and `cutoff`,
-5. stores the resulting right-canonical tensors back into `ψ.Γ` and the Schmidt
-   spectra back into `ψ.λ`.
+The injective-setting caveat: this canonicalization path assumes a non-degenerate transfer spectrum. For symmetry-broken or block-diagonal states (GHZ-like, spontaneously broken `Z_2`, …) see the `noninjective` and `symmetry_break` keywords in [`canonical!`](@ref).
 
-It mutates `ψ` in place and returns the same object.
+## Choosing the keywords
 
-## Meaning Of The `canonical!` Arguments
+For a healthy injective state the defaults are fine and you can ignore the keywords. Reach for them when:
 
-The keyword arguments control both gauge-fixing and truncation:
+- `maxdim` — lower it only when you are willing to accept truncation error in exchange for a smaller bond dimension. The default cap `MAXDIM` is large enough that physical states usually saturate `cutoff` first.
+- `cutoff` — tighten it (e.g. `1e-14`) to discard tiny Schmidt tails for cleaner entanglement spectra; loosen it (e.g. `1e-8`) when speed matters more than the last few digits.
+- `renormalize` — keep `true` for normal use. After non-trivial truncation the retained spectrum is rescaled to unit norm, which is what almost every downstream routine expects.
 
-- `maxdim=MAXDIM`
-  Maximum number of Schmidt values kept on each bond during canonicalization.
-  This is a hard bond-dimension cap.
-- `cutoff=SVDTOL`
-  Singular values smaller than this threshold are discarded.
-- `renormalize=true`
-  Whether to renormalize the retained Schmidt values after truncation.
+Pitfall: an aggressive `cutoff` or small `maxdim` produces a genuinely truncated state. The bare Vidal tensor reconstructed by `ψ[i]` afterwards is the Vidal tensor *of that truncated state*, not of the original.
 
-In practice:
-
-- use `maxdim` when you want to limit the bond dimension explicitly,
-- use `cutoff` when you want to suppress very small Schmidt values,
-- leave `renormalize=true` in normal use, especially after truncation.
-
-## Constructor Behavior
-
-The constructors:
+## Constructors
 
 ```julia
 iMPS(Γs; renormalize=true)
 iMPS(T, Γs; renormalize=true)
 ```
 
-assume the input tensors are raw local tensors and initialize the Schmidt
-vectors as trivial all-ones placeholders before canonicalizing.
+Both constructors interpret `Γs` as raw local tensors (any shape, any normalization). They populate the Schmidt vectors with all-ones placeholders and then, by default, call [`canonical!`](@ref) so the result obeys the storage convention immediately. Pass `renormalize=false` only when you intend to set up the canonical structure yourself; higher-level routines expect the canonical convention to hold.
 
-So:
+[`rand_iMPS`](@ref) and [`product_iMPS`](@ref) are convenience constructors that always return a canonicalized state.
 
-- `renormalize=true`
-  means "construct the state and immediately bring it to the package's
-  Schmidt-canonical form".
-- `renormalize=false`
-  means "store the tensors as given, with placeholder Schmidt vectors".
+## Example: random state, both views of site 1
 
-The latter is mainly useful for controlled internal workflows; most users should
-keep the default `renormalize=true`.
-
-## Single-Site Example
-
-```@example
+```@example states
 using iTEBD
 
 psi = rand_iMPS(ComplexF64, 1, 2, 4)
@@ -163,33 +92,39 @@ stored_B = psi.Γ[1]
 Gamma1, lambda1 = psi[1]
 
 (;
-    stored_size=size(stored_B),
-    vidal_size=size(Gamma1),
-    lambda=lambda1,
+    stored_size  = size(stored_B),
+    vidal_size   = size(Gamma1),
+    lambda       = lambda1,
+    reconstructed = isapprox(reshape(Gamma1, :, length(lambda1)) .* lambda1',
+                              reshape(stored_B, :, length(lambda1));
+                              atol=1e-12),
 )
 ```
 
-In this example:
+`stored_B` is what lives in the struct; `Gamma1` is what you would write down in a paper. The last entry checks the convention explicitly: multiplying `Gamma1` by `lambda1` on the right reproduces `stored_B`.
 
-- `stored_B` is the right-canonical tensor actually stored in the struct,
-- `Gamma1` is the bare Vidal tensor reconstructed by indexing,
-- `lambda1` is the Schmidt spectrum on the bond to the right of the site.
+## Example: product state has Schmidt rank 1
 
-## Practical Caveats
+A Néel-like `Z_2` product state on a two-site unit cell has a single non-zero Schmidt value on every bond:
 
-- When reading papers, check whether `Γ_i` means the bare Vidal tensor or a
-  tensor with one of the Schmidt vectors absorbed. In this package the stored
-  tensor is the absorbed version `B_i = Γ_i λ_i`.
-- `canonical!` assumes the state is in the injective setting used throughout
-  this package.
-- If you canonicalize with a small `maxdim` or aggressive `cutoff`, then `ψ[i]`
-  reconstructs the Vidal tensor for the **truncated** state, not for the
-  pre-truncation state.
+```@example states
+using iTEBD
+
+up   = ComplexF64[1, 0]
+down = ComplexF64[0, 1]
+neel = product_iMPS([up, down])
+
+(;
+    bond_dims = length.(neel.λ),
+    lambdas   = neel.λ,
+)
+```
+
+Both `λ` vectors have length 1 and entry 1.0: product states factorize across every cut, so their Schmidt spectrum is trivial. The same `λ` would survive any subsequent gate application followed by [`canonical!`](@ref), as long as the gate preserves the product structure.
 
 ## References
 
-For the standard iTEBD and canonical-form background, the most useful starting
-points are:
+For the iTEBD algorithm and Schmidt canonical form, the standard references are:
 
 - G. Vidal, [Classical Simulation of Infinite-Size Quantum Lattice Systems in
   One Spatial Dimension](https://link.aps.org/doi/10.1103/PhysRevLett.98.070201),
@@ -201,5 +136,4 @@ points are:
   Product States](https://doi.org/10.1016/j.aop.2010.09.012), Annals of Physics
   326, 96-192 (2011).
 
-The generated reference for constructors and canonicalization routines lives on
-[API Reference](api.md).
+Full signatures for the constructors and canonicalization routines are on the [API Reference](api.md) page.

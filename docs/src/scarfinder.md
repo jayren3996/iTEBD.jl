@@ -1,161 +1,127 @@
 # ScarFinder
 
-`iTEBD.jl` includes a general ScarFinder workflow for searching for
-low-entanglement, weakly thermalizing trajectories directly in the iMPS
-manifold.
+ScarFinder searches for low-entanglement, weakly thermalizing trajectories
+directly on the iMPS manifold. Given a trial state, a local update rule, and a
+target bond dimension `χ`, it repeatedly evolves, projects back to `χ`, and
+optionally corrects the energy density so the trajectory does not drift toward
+a featureless low-energy state.
 
-## Idea
+`iTEBD.jl` exposes three entry points:
 
-One ScarFinder iteration in this package has three conceptual parts:
+- `scarfinder!(ψ, h, dt, χ, N; ...)` builds `exp(-1im * dt * h)` from the local
+  Hamiltonian density `h` and uses it as the real-time gate.
+- `scarfinder!(ψ, G, χ, N; ...)` applies a user-supplied gate `G` with no
+  energy correction.
+- `scarfinder!(ψ, G, h, χ, N; ...)` applies a user-supplied gate `G` but
+  measures the energy drift against `h`.
 
-1. Evolve the current iMPS for a short real-time interval inside a larger
-   temporary bond dimension.
-2. Project back to the chosen variational manifold by truncating to the target
-   bond dimension `χ`.
-3. If a target energy density is supplied, apply a small imaginary-time
-   correction so the projected state stays near that target energy rather than
-   drifting toward a trivial low-energy state.
+Each iteration has the same shape: real-time evolution at a temporary
+bond dimension `maxdim`, projection back to `χ`, and an optional imaginary-time
+nudge toward a target energy density. After `N` iterations the routine
+optionally scans a short refinement trajectory and keeps the minimum-entanglement
+point along it.
 
-The high-level `scarfinder!` routines simply repeat this iteration `N` times.
-By default they then perform a short refinement scan along the optimized
-trajectory and keep the minimum-entanglement point.
+## Which interface should I use?
 
-## Public Interfaces
+Pick by the form of the update rule.
 
-There are three public ScarFinder interfaces:
+- If your dynamics is `H` and you only have the local density `h`, use
+  `scarfinder!(ψ, h, dt, χ, N; ...)`. This is the simplest path.
+- If your update is already packaged as a gate (for example a Floquet step, or
+  a precomputed `exp(-1im * dt * h)` you intend to reuse), and you do not need
+  an energy constraint, use `scarfinder!(ψ, G, χ, N; ...)`.
+- For constrained models such as PXP, where `G` carries projectors that repair
+  the physical subspace after truncation, use `scarfinder!(ψ, G, h, χ, N; ...)`.
+  The projected gate drives the dynamics while the unprojected Hamiltonian
+  density `h` defines the energy target. Conflating the two leads to wrong
+  energy corrections.
 
-- `scarfinder!(ψ, h, dt, χ, N; ...)`
-  Hamiltonian-based interface. The local Hamiltonian density `h` is exponentiated
-  internally as `exp(-1im * dt * h)`.
-- `scarfinder!(ψ, G, χ, N; ...)`
-  Gate-based interface. Use this when the evolution rule is already given as a
-  local gate `G` and no energy fixing is needed.
-- `scarfinder!(ψ, G, h, χ, N; ...)`
-  Mixed `gate + Hamiltonian` interface. Use this when the real-time update is a
-  custom gate `G`, but the energy correction should still be measured with
-  respect to a Hamiltonian density `h`.
+## Positional arguments
 
-The mixed interface is usually the right choice for constrained models such as
-PXP, where the gate used during ScarFinder may contain projectors that restore
-the physical subspace after truncation, while the target energy should still be
-computed from the unprojected Hamiltonian density.
-
-## Positional Arguments
-
-The meaning of the positional arguments is:
-
-- `ψ`
-  The trial `iMPS` state, updated in place.
-- `h`
-  A local Hamiltonian density acting on a contiguous window of the unit cell.
-  Its support can be inferred automatically with `operator_span(ψ, h)`.
-- `G`
-  A local gate acting on a contiguous window of the unit cell. This is used in
-  the gate-based and mixed interfaces.
-- `dt`
-  Microscopic real-time step used to build `exp(-1im * dt * h)` in the
+- `ψ` — the trial `iMPS`, updated in place.
+- `h` — a local Hamiltonian density on a contiguous window of the unit cell.
+  Its support can be inferred by `operator_span(ψ, h)`.
+- `G` — a local gate on a contiguous window. Used by the gate-based and mixed
+  interfaces.
+- `dt` — microscopic real-time step used to build `exp(-1im * dt * h)` in the
   Hamiltonian-based interface.
-- `χ`
-  Target bond dimension after the projection step. This is the bond dimension of
-  the variational manifold that ScarFinder repeatedly projects back to.
-- `N`
-  Number of ScarFinder iterations.
+- `χ` — bond dimension of the projected manifold. ScarFinder always returns to
+  this size after each iteration.
+- `N` — number of ScarFinder iterations.
 
-## Keyword Arguments
+## Keyword arguments
 
-All interfaces support the refinement controls:
+Evolution and projection:
 
-- `refine=true`
-  After the main `N` iterations, scan a short trajectory and keep the
-  minimum-entanglement point.
-- `refine_step=100`
-  Number of trial points used in that scan.
+- `nstep` — microscopic evolution steps before each projection. One ScarFinder
+  iteration covers physical time `Δt ≈ nstep * dt`.
+- `maxdim=MAXDIM` — temporary bond dimension during real-time evolution.
+- `cutoff=SVDTOL` — SVD cutoff used during the projection step.
 
-The Hamiltonian-based interface also supports:
+Support widths:
 
-- `refine_dt=dt / 10`
-  Microscopic time step used during the refinement scan.
+- `span=operator_span(ψ, G_or_h)` — number of sites the real-time gate acts on.
+  In the Hamiltonian-based interface this refers to `h`; in the gate-based and
+  mixed interfaces it refers to `G`.
+- `hspan=operator_span(ψ, h)` — number of sites the Hamiltonian density acts on
+  during energy fixing in the mixed interface.
 
-The evolution and projection controls are:
+Energy fixing:
 
-- `nstep`
-  Number of local evolution steps before each projection. For
-  `scarfinder!(ψ, h, dt, χ, N; ...)`, one ScarFinder iteration represents a
-  physical interval `Δt ≈ nstep * dt`.
-- `maxdim=MAXDIM`
-  Temporary bond dimension allowed during the real-time evolution stage, before
-  the projection back to `χ`.
-- `cutoff=SVDTOL`
-  Truncation cutoff used during the projection step.
+- `target=nothing` — target energy density. Leave as `nothing` to disable
+  energy correction.
+- `tol=1e-6` — stop the energy-fixing loop once `|E - target| < tol`.
+- `α=0.1` — step-size parameter for the imaginary-time correction.
+- `maxstep=50` — maximum substeps inside one energy-fixing call.
 
-The support controls are:
+Refinement scan (run once after the `N` iterations):
 
-- `span=operator_span(ψ, G_or_h)`
-  Number of sites acted on by the real-time evolution object. In the
-  Hamiltonian-based interface this refers to `h`; in the gate-based and mixed
-  interfaces it refers to `G`.
-- `hspan=operator_span(ψ, h)`
-  Number of sites acted on by the Hamiltonian density used for energy fixing in
-  the mixed interface.
+- `refine=true` — scan a short trajectory and keep the minimum-entanglement
+  point.
+- `refine_step=100` — number of trial points used in the scan.
+- `refine_dt=dt/10` — microscopic step used during the scan (Hamiltonian-based
+  interface only).
 
-The energy-fixing controls are:
+## Two time scales: `dt` vs `nstep`
 
-- `target=nothing`
-  Target energy density. If left as `nothing`, no energy correction is applied.
-- `tol=1e-6`
-  Stop the energy-fixing loop once the energy density is within `tol` of the
-  target.
-- `α=0.1`
-  Step-size parameter for the imaginary-time energy correction.
-- `maxstep=50`
-  Maximum number of energy-fixing substeps after each projection.
+`dt` is the microscopic gate time; `nstep` is how many of those microscopic
+steps fit inside one ScarFinder iteration. If you want each iteration to cover
+physical time `Δt`, set `nstep ≈ Δt / dt`. With `dt = 0.01` and `Δt = 0.05`,
+that means `nstep = 5`.
 
-## How The Arguments Fit Together
+`nstep = 1` is accepted for backward compatibility but emits a warning: one
+microscopic step followed by a hard projection back to `χ` is usually too
+aggressive a truncation cycle to represent the intended coarse-grained flow.
 
-The most important practical distinction is between the two time scales:
+## Two bond dimensions: `maxdim` vs `χ`
 
-- `dt`
-  Microscopic gate time used to construct a local evolution operator.
-- `nstep`
-  Number of microscopic applications inside one ScarFinder iteration.
+`maxdim` is the temporary headroom that real-time evolution may grow into
+before each projection. `χ` is where the state lands after the projection.
+Typically `maxdim ≥ χ`, often strictly larger so the evolution has room to
+represent transient growth that the projection then prunes.
 
-If you want one ScarFinder iteration to represent a larger physical interval
-`Δt`, choose `nstep ≈ Δt / dt`. For example, if your microscopic gate uses
-`dt = 0.01` but you want each ScarFinder iteration to represent `Δt = 0.05`,
-set `nstep = 5`.
+## Helper functions
 
-As a practical rule, `nstep = 1` is usually too small for ScarFinder because it
-reduces one iteration to a single microscopic evolution step before projection.
-The implementation still accepts this for backwards compatibility, but now
-emits a warning when `nstep == 1`.
+- [`operator_span`](@ref) infers the support of a local operator from the
+  local Hilbert-space dimension of `ψ`.
+- [`energy_density`](@ref) returns the unit-cell averaged expectation value of
+  a local operator.
+- [`energy_span`](@ref) estimates the lowest and highest energy densities
+  reachable by imaginary-time iTEBD with `h`. Useful for picking a `target`.
 
-The two bond dimensions also play different roles:
+## A complete PXP example
 
-- `maxdim`
-  Temporary working bond dimension during real-time evolution.
-- `χ`
-  Target bond dimension of the projected manifold.
+The example below uses the mixed interface and reproduces the standard
+ScarFinder workflow on the PXP model. The gate `G` contains a two-site
+blockade projector that restores the Rydberg-constraint subspace after each
+truncation; the energy target is matched to the energy density of the
+initial Z2 product state, which is what the scar trajectory should approximately
+preserve.
 
-Typically `maxdim >= χ`, often strictly larger.
-
-## Helper Functions
-
-The following helpers are useful when setting up ScarFinder runs:
-
-- `operator_span(ψ, O)`
-  Infer how many sites a local operator `O` acts on from the local Hilbert-space
-  dimension of `ψ`.
-- `energy_density(ψ, h; span=...)`
-  Compute the unit-cell averaged expectation value of `h`.
-- `energy_span(n, d, h; dτ=0.1, Nτ=1000, maxdim=32)`
-  Estimate the low- and high-energy densities reachable by imaginary-time iTEBD.
-  This is convenient when choosing a `target` energy for ScarFinder.
-
-## Complete PXP Example
-
-The example below uses the mixed interface
-`scarfinder!(ψ, G, h, χ, N; ...)`, which is the recommended form for the PXP
-model.
+After the run, two numbers tell you whether ScarFinder converged in the
+expected sense: `final_energy` should be close to `target_energy`, and
+`maxbond` should sit at or below `χ` (here `χ = 2`). The state is also
+small enough to inspect bond-by-bond if you want.
 
 ```@example
 using iTEBD
@@ -198,19 +164,22 @@ scarfinder!(psi, G, h_pxp, 2, 5;
 )
 ```
 
-## Choosing An Interface
+## Diagnostics during a run
 
-- Use `scarfinder!(ψ, h, dt, χ, N; ...)` when the local evolution rule is just
-  the Hamiltonian density `h`.
-- Use `scarfinder!(ψ, G, χ, N; ...)` when you already have a local gate and do
-  not want any energy correction.
-- Use `scarfinder!(ψ, G, h, χ, N; ...)` when you evolve with a custom gate `G`
-  but still want the truncation-induced energy drift corrected with respect to
-  `h`.
+Between successive `scarfinder!` calls (or between blocks of iterations) it is
+worth tracking two cheap quantities:
+
+- `energy_density(psi, h; span=...)` — should stay close to `target` once
+  energy fixing has settled. A drift that the energy-fixing loop cannot close
+  usually means `α` is too small, `maxstep` is too small, or `target` is
+  outside the manifold reachable at the chosen `χ`.
+- `maximum(length.(psi.λ))` — the largest bond dimension currently used. If
+  this saturates at `χ` after every iteration, the projection is doing real
+  work; if it sits well below `χ`, you can probably reduce `χ` (and the cost).
 
 ## Reference
 
-The implementation here follows the algorithmic idea introduced in:
+The implementation follows the algorithm in:
 
 - J. Ren, A. Hallam, L. Ying, and Z. Papić, [ScarFinder: A Detector of Optimal
   Scar Trajectories in Quantum Many-Body Dynamics](https://eprints.whiterose.ac.uk/id/eprint/238368/),

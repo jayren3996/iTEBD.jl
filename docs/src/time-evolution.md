@@ -1,57 +1,85 @@
-# Time Evolution
+# Time evolution
 
-Time evolution is implemented by repeatedly applying local gates to the unit
-cell and re-canonicalizing the updated bonds.
+Time evolution proceeds by applying local gates to the unit cell and
+re-canonicalizing the bonds that the gate touched. This page covers the local
+update, the layered Trotter helpers, and the optional adaptive bond-dimension
+controller.
 
-## Local Gate Updates
+## Local gate updates
 
-The main in-place update is:
+The in-place update is
 
 ```julia
-applygate!(ψ, G, i, j; maxdim=MAXDIM, cutoff=SVDTOL, renormalize=true)
+applygate!(ψ, G, i, j; maxdim=MAXDIM, mindim=1, truncerr=0.0,
+           svd_min=SVDTOL, renormalize=true, return_stats=false)
 ```
 
-where `i:j` specifies the gate support inside the periodic unit cell.
+where `i:j` is the contiguous support inside the periodic unit cell (the range
+may wrap around). The gate `G` is a dense operator whose dimension must match
+the total physical dimension of the block.
 
-For repeated sweeps, you can also use:
+Truncation on the updated internal bonds is governed by the same controller
+documented on the [truncation](truncation-note.md) page:
+
+- `maxdim` is a hard cap on the kept bond dimension.
+- `mindim` is the minimum kept dimension (default `1`).
+- `truncerr` is a target discarded weight. The default `0.0` selects fixed-cap
+  behavior; positive values let the controller drop modes once the discarded
+  weight rises above the target.
+- `svd_min` is an absolute singular-value floor applied after the
+  discarded-weight rule.
+- `renormalize=true` rescales the kept Schmidt values so the state stays
+  normalized.
+
+For repeated sweeps, use
 
 ```julia
 evolve!(ψ, gates, steps; chi_policy=:fixed, maxdim=MAXDIM, ...)
 ```
 
-where each element of `gates` is a tuple `(G, i, j)`.
+with each element of `gates` written as `(G, i, j)`. The truncation keywords
+have the same meaning as above and are applied to every gate in the sweep.
 
-## Hamiltonian Layers And Trotter Order
+## Hamiltonian layers and Trotter order
 
-If you have a Hamiltonian split into commuting layers, you can ask the package
-to build the Trotter gates for you:
+Given a Hamiltonian split into commuting layers, the package can build the
+Trotter gates internally:
 
 ```julia
 evolve!(ψ, layers, dt, steps; trotter=:second, evolution=:real, ...)
 ```
 
-Each `layers[k]` is a vector of local Hamiltonian terms `(h, i, j)`. Terms
-inside one layer are assumed to commute, and they are applied in the supplied
-order. The helper
+Each `layers[k]` is a vector of local Hamiltonian terms `(h, i, j)`. Terms in
+one layer are assumed to commute and are applied in the supplied order; the
+caller is responsible for checking commutation. To inspect or reuse the gate
+list explicitly,
 
 ```julia
 trotter_gates(layers, dt; trotter=:second, evolution=:real)
 ```
 
-materializes one macro-step as an explicit gate list if you want to inspect or
-reuse it directly.
+returns one macro-step as a vector of `(G, i, j)` tuples.
 
-For real-time evolution, the layered interface currently supports:
+### Choosing a Trotter scheme
 
-- `trotter=:second` for Strang splitting on any number of layers,
-- `trotter=:fourth` for Suzuki's recursive fourth-order composition on any
-  number of layers,
-- `trotter=:fourth_opt` for the optimized Barthel-Zhang fourth-order formula on
-  exactly two layers.
+Three schemes are available:
 
-The fourth-order schemes intentionally remain real-time-only in v1. Both
-`trotter=:fourth` and `trotter=:fourth_opt` contain negative substeps, so
-`evolution=:imaginary` is currently supported only with `trotter=:second`.
+- `trotter=:second` — Strang splitting on any number of layers. Required for
+  imaginary-time evolution. A sensible default for ground-state search.
+- `trotter=:fourth_opt` — Barthel-Zhang optimized fourth-order formula for
+  exactly two layers. Fewest substeps among the fourth-order options, so it is
+  the cheapest accurate choice for typical nearest-neighbor models in real time
+  at small `dt`.
+- `trotter=:fourth` — Suzuki's recursive fourth-order composition. Works for
+  any number of layers and is the right choice when the Hamiltonian needs more
+  than two commuting blocks.
+
+Both fourth-order schemes contain negative substeps, so they are restricted to
+real-time evolution; `evolution=:imaginary` is only valid with
+`trotter=:second`. Substep counts also differ: `:second` produces one Strang
+sweep per macro-step, `:fourth` produces five Strang sweeps, and `:fourth_opt`
+produces eleven elementary substeps over two layers. Account for that when
+comparing wall-clock costs.
 
 ```@example
 using iTEBD
@@ -69,23 +97,37 @@ evolve!(psi, layers, 0.1, 5; trotter=:fourth, maxdim=8)
 length(trotter_gates(layers, 0.1; trotter=:fourth_opt))
 ```
 
-## Adaptive Bond Dimension
+## Adaptive bond dimension
 
-For adaptive real- or imaginary-time evolution, `iTEBD.jl` provides two helper
-functions:
+By default, `evolve!` runs with `chi_policy=:fixed`, which combines the
+`maxdim` cap with the discarded-weight controller documented above. That fixed
+policy is the recommended starting point. The adaptive policy is opt-in and
+mostly useful when you want the bond dimension to grow gradually during a
+long real- or imaginary-time run rather than being saturated to `maxdim` from
+the first step.
 
-- `natural_bonddim(λ; q=1.0, alpha=0.1)` estimates a smooth intrinsic bond
-  dimension from a Schmidt spectrum `λ`.
-- `adaptive_bonddim(previous, λ; mindim, maxdim, ...)` turns that score into a
-  non-decreasing bond dimension bounded between `mindim` and `maxdim`.
+Two helpers support the adaptive policy:
 
-The first helper is defined from the normalized Schmidt weights
+- `natural_bonddim(λ; q=1.0, alpha=0.1)` reads the current Schmidt spectrum
+  `λ` and returns a smooth estimate of how many modes the state actually
+  needs. Larger `q` (e.g. `q = 2`) gives a smaller, more aggressive estimate;
+  smaller `q` keeps more of the tail and is more conservative. The `alpha`
+  factor adds a small tail-protection bonus when the spectrum is broad.
+- `adaptive_bonddim(previous, λ; mindim, maxdim, ...)` turns that estimate
+  into the actual bond dimension used by the next step, with two guardrails:
+  the result never decreases between steps, and it is clamped to
+  `[mindim, maxdim]`.
+
+The formulas below define those helpers precisely. They are reference
+material, not required reading for normal use.
+
+`natural_bonddim` is built from the normalized Schmidt weights
 
 ```math
 p_i = \frac{|\lambda_i|^2}{\sum_j |\lambda_j|^2},
 ```
 
-through the Rényi effective rank
+the Rényi effective rank
 
 ```math
 r_q =
@@ -101,8 +143,8 @@ and the tail-sensitive score
 \chi_{\mathrm{nat}} = r_q \bigl(1 + \alpha (1 - p_1)\bigr),
 ```
 
-where `p_1` is the largest normalized Schmidt weight. The second helper turns
-that smooth score into an actual working bond dimension through the ratchet
+where `p_1` is the largest normalized Schmidt weight. `adaptive_bonddim` then
+applies the ratchet
 
 ```math
 \chi_{\mathrm{new}} =
@@ -128,12 +170,12 @@ With that convention:
   tails;
 - `alpha = 0` disables the tail-amplification factor.
 
-The default `q = 1.0, alpha = 0.1` is chosen as a mild, fidelity-oriented
-setting. It keeps the entropy-rank baseline while only slightly enlarging the
-recommended bond dimension when the Schmidt spectrum develops a broad tail.
+The default `q = 1.0, alpha = 0.1` is a mild, fidelity-oriented setting. It
+keeps the entropy-rank baseline while only slightly enlarging the recommended
+bond dimension when the Schmidt spectrum develops a broad tail.
 
-The high-level wrapper accepts the same gate list together with the adaptive
-policy:
+To enable adaptive growth, pass `chi_policy=:adaptive` together with the same
+gate list:
 
 ```@example
 using iTEBD
@@ -157,7 +199,7 @@ evolve!(psi, gates, 10; chi_policy=:adaptive, maxdim=16)
 maximum(length.(psi.λ))
 ```
 
-## Imaginary-Time AKLT Example
+## Imaginary-time AKLT example
 
 ```@example
 using iTEBD
@@ -180,7 +222,7 @@ for _ in 1:10
     applygate!(psi, G, 2, 1; maxdim=8)
 end
 
-size.(psi.Γ)
+inner_product(psi)
 ```
 
 The generated function reference lives on [API Reference](api.md).
