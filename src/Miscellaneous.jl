@@ -50,9 +50,12 @@ end
 Return a smooth spectrum-derived estimate of the intrinsic bond dimension
 associated with Schmidt values `λ`.
 
-The score is based on the Renyi effective rank of the normalized weights
-`p_i = abs2(λ_i) / sum(abs2, λ)` and is optionally amplified by the total tail
-weight `1 - p_1`, where `p_1` is the largest normalized weight.
+The score is based on the Rényi effective rank of order `q` on the normalized
+weights `p_i = abs2(λ_i) / sum(abs2, λ)`, optionally amplified by the total
+tail weight `1 - p_1` (where `p_1` is the largest normalized weight). The
+boundary case `q = 0` reduces to the support-count rank (number of
+above-cutoff Schmidt values); `q = 1` is the entropy rank; `q = 2` is the
+participation-ratio rank.
 """
 function natural_bonddim(
     λ::AbstractVector;
@@ -60,7 +63,7 @@ function natural_bonddim(
     alpha::Real=0.1,
     cutoff::Real=1e-12
 )
-    q > 0 || throw(ArgumentError("q must be positive"))
+    q >= 0 || throw(ArgumentError("q must be non-negative"))
     alpha >= 0 || throw(ArgumentError("alpha must be non-negative"))
     cutoff >= 0 || throw(ArgumentError("cutoff must be non-negative"))
 
@@ -77,7 +80,10 @@ function natural_bonddim(
     total > 0 || return 1.0
 
     probs = sort!(weights ./ total; rev=true)
-    entropy = if isapprox(q, 1.0; atol=sqrt(eps(Float64)))
+    entropy = if isapprox(q, 0; atol=sqrt(eps(Float64)))
+        # Support-count rank: exp(entropy) = number of above-cutoff modes.
+        log(length(probs))
+    elseif isapprox(q, 1.0; atol=sqrt(eps(Float64)))
         entanglement_entropy(probs; cutoff=cutoff)
     else
         log(sum(p -> p^q, probs)) / (1 - q)

@@ -36,7 +36,7 @@ end
     @test adaptive_bonddim(7, spectrum; mindim=2, maxdim=10) == 7
     @test adaptive_bonddim(1, fill(0.5, 8); mindim=2, maxdim=3) == 3
 
-    @test_throws ArgumentError natural_bonddim(spectrum; q=0.0)
+    @test_throws ArgumentError natural_bonddim(spectrum; q=-0.1)
     @test_throws ArgumentError natural_bonddim(spectrum; alpha=-0.1)
     @test_throws ArgumentError adaptive_bonddim(1, spectrum; mindim=0)
     @test_throws ArgumentError adaptive_bonddim(1, spectrum; mindim=3, maxdim=2)
@@ -58,6 +58,20 @@ end
     spectrum = [sqrt(0.5), sqrt(0.5)]
     @test isfinite(natural_bonddim(spectrum; q=1e6))
     @test isfinite(natural_bonddim(spectrum; q=1e-6))
+end
+
+@testset "NATURAL_BONDDIM_Q_ZERO_IS_SUPPORT_COUNT" begin
+    # q = 0 reduces to the support-count rank: number of above-cutoff modes
+    # in the normalized spectrum.
+    bell = [inv(sqrt(2)), inv(sqrt(2))]
+    @test natural_bonddim(bell; q=0.0, alpha=0.0) ≈ 2.0 atol=1e-12
+
+    three_uniform = fill(inv(sqrt(3)), 3)
+    @test natural_bonddim(three_uniform; q=0.0, alpha=0.0) ≈ 3.0 atol=1e-12
+
+    # Modes below the cutoff are excluded from the support count.
+    with_tiny_tail = [sqrt(0.9999999999), sqrt(1e-10 - 1e-15), 1e-15]
+    @test natural_bonddim(with_tiny_tail; q=0.0, alpha=0.0, cutoff=1e-12) ≈ 2.0 atol=1e-12
 end
 
 @testset "ENTANGLEMENT_ENTROPY_NORMALIZES" begin
