@@ -63,7 +63,7 @@ function tensor_applygate!(
     svd_floor = _resolve_svd_min(svd_min, cutoff)
     _validate_truncation_args(maxdim, mindim, truncerr, svd_floor)
     n = length(Γs)
-    isone(n) && return return_stats ? ([tensor_umul(G, Γs[1])], Vector{Vector{eltype(λl)}}(), Any[]) : ([tensor_umul(G, Γs[1])], Vector{Vector{eltype(λl)}}())
+    isone(n) && return return_stats ? ([tensor_umul(G, Γs[1])], Vector{Vector{eltype(λl)}}(), BondStat[]) : ([tensor_umul(G, Γs[1])], Vector{Vector{eltype(λl)}}())
     Γ = tensor_group(Γs)
     tensor_lmul!(λl, Γ)
     GΓ = tensor_umul(G, Γ)
@@ -162,7 +162,7 @@ function applygate!(
         if return_stats
             return ψ, (
                 support=(i0, j0),
-                bond_stats=Any[],
+                bond_stats=BondStat[],
                 max_discarded_weight=0.0,
                 num_saturated=0,
             )
@@ -308,7 +308,7 @@ function _gate_update_stats(i::Integer, j::Integer, bond_stats)
 end
 
 function _aggregate_evolution_stats(gate_updates)
-    bond_stats = Any[]
+    bond_stats = BondStat[]
     for update in gate_updates
         append!(bond_stats, update.bond_stats)
     end

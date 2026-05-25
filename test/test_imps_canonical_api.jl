@@ -141,6 +141,26 @@ end
     _assert_finite_nonempty(psi_ignore)
 end
 
+@testset "GHZ_LIKE_NONINJECTIVE_MULTISITE" begin
+    # The existing GHZ_LIKE_NONINJECTIVE_WARNING test uses a 1-site cell.
+    # Two-fold-degenerate transfer spectra also arise on multi-site cells —
+    # exercise the same noninjective/symmetry_break paths there.
+    G = zeros(ComplexF64, 2, 2, 2)
+    G[1, 1, 1] = 1   # sector 1 stays in sector 1, physical 0
+    G[2, 2, 2] = 1   # sector 2 stays in sector 2, physical 1
+
+    psi_auto = iMPS([copy(G), copy(G)], [ones(2), ones(2)], 2)
+    canonical!(psi_auto; noninjective=:ignore, symmetry_break=:auto)
+    _assert_finite_nonempty(psi_auto)
+    # After symmetry breaking to one sector, the bond dimension should
+    # collapse to the size of that sector (1 here, since each sector is
+    # a pure |0...⟩ or |1...⟩ string).
+    @test maximum(length.(psi_auto.λ)) <= 2
+
+    psi_error = iMPS([copy(G), copy(G)], [ones(2), ones(2)], 2)
+    @test_throws ArgumentError canonical!(psi_error; noninjective=:error)
+end
+
 @testset "NO_BLOCK_CANONICAL_EXPORT" begin
     @test !isdefined(iTEBD, :block_canonical)
 end

@@ -124,6 +124,35 @@ end
     @test err_fourth_opt < err_second
 end
 
+@testset "TROTTER_GATE_CACHE_REUSES_FOR_REPEATED_COEFFS" begin
+    # _materialize_trotter_gates caches exp(coeff * h) by (layer, term, coeff)
+    # so palindromic Trotter schemes can reuse the matrix exponential when the
+    # same coefficient appears multiple times. A regression in the cache key
+    # (e.g. coeff equality drift from float arithmetic) would show up here as
+    # the gate list having all-distinct Matrix references.
+    X = ComplexF64[0 1; 1 0]
+    Z = ComplexF64[1 0; 0 -1]
+    layers = [[(X, 1, 2)], [(Z, 1, 2)]]
+
+    # :fourth_opt has 11 stages with palindromic coefficients
+    # (A1, B1, A2, B2, A3, B3, A3, B2, A2, B1, A1). At most 3 unique values
+    # per layer (A1/A2/A3 and B1/B2/B3) → at most 6 unique gate matrices
+    # across the 11 stages. Multi-step calls also exercise the seam merging
+    # in _push_trotter_stage!.
+    gates = trotter_gates(layers, 0.1; trotter=:fourth_opt)
+    @test length(gates) == 11
+    @test length(unique(objectid(g) for (g, _, _) in gates)) <= 6
+
+    # Multi-step schedule via the internal helper. Stage 1 of step k+1 merges
+    # with stage 11 of step k (both layer 1, coeff A1), so the per-step stage
+    # count decreases.
+    stages_3 = iTEBD._trotter_stage_schedule(2, :fourth_opt, 3)
+    gates_3 = iTEBD._materialize_trotter_gates(layers, 0.1, stages_3; evolution=:real)
+    @test length(gates_3) < 33  # naive count would be 11 * 3 = 33
+    # The cache should still produce a small number of unique matrices.
+    @test length(unique(objectid(g) for (g, _, _) in gates_3)) <= 8
+end
+
 @testset "EVOLVE_WRAPAROUND_GATE_UNDER_ADAPTIVE_POLICY" begin
     # Wrap-around gates (j < i) used to leave the state non-canonical, and
     # the :adaptive policy ratchets the bond dim across bonds within an
