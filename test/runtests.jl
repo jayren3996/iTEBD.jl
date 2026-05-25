@@ -15,6 +15,7 @@ const TEST_GROUPS = Dict(
         "test_krylov.jl",
         "test_scarfinder_api.jl",
         "test_scarfinder_regression.jl",
+        "test_scarfinder_convergence.jl",
         "test_performance_improvements.jl",
         "test_schmidt_fixes.jl",
         "test_imps_fixes.jl",
