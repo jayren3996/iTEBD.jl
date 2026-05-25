@@ -254,7 +254,12 @@ function _dominant_eigenvalue_dense(trmat::AbstractMatrix)
     end
     vals, _, info = eigsolve(trmat, 1, :LM; ishermitian=false)
     if info.converged < 1
-        @warn "Dominant eigenvalue Krylov solver did not converge" info
+        # Previously this warned and returned abs(vals[1]) anyway, masking the
+        # divergence. Callers downstream (norm, overlap, fixed-point checks)
+        # would silently propagate the wrong value. Returning NaN forces the
+        # caller to notice; the warning still fires so the cause is visible.
+        @warn "Dominant eigenvalue Krylov solver did not converge; returning NaN" info
+        return NaN
     end
     return abs(vals[1])
 end
