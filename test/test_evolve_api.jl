@@ -124,6 +124,47 @@ end
     @test err_fourth_opt < err_second
 end
 
+@testset "EVOLVE_WRAPAROUND_GATE_UNDER_ADAPTIVE_POLICY" begin
+    # Wrap-around gates (j < i) used to leave the state non-canonical, and
+    # the :adaptive policy ratchets the bond dim across bonds within an
+    # evolve! sweep. Combining the two should produce a canonical state
+    # whose bond dim respects the ratchet — neither path should clobber
+    # the other.
+    Random.seed!(2026_05_25)
+
+    # Inline right-canonical check to avoid pulling TestUtils into this file.
+    function right_canonical_err(ψ)
+        errs = Float64[]
+        for Γ in ψ.Γ
+            Dl = size(Γ, 1)
+            overlap = zeros(ComplexF64, Dl, Dl)
+            for s in 1:size(Γ, 2)
+                Bs = reshape(Γ[:, s, :], Dl, size(Γ, 3))
+                overlap .+= Bs * Bs'
+            end
+            push!(errs, norm(overlap - Matrix{ComplexF64}(I, Dl, Dl)))
+        end
+        maximum(errs)
+    end
+
+    Z = ComplexF64[1 0; 0 -1]
+    X = ComplexF64[0 1; 1 0]
+    H = kron(Z, X) + 0.2 * kron(X, Z)
+    G_wrap = exp(-0.1im * H)
+
+    psi = rand_iMPS(ComplexF64, 4, 2, 4)
+    canonical!(psi)
+    initial_dims = length.(psi.λ)
+    # Sweep: include both interior gates and the wrap (4, 1) gate.
+    gates = [(G_wrap, 1, 2), (G_wrap, 2, 3), (G_wrap, 3, 4), (G_wrap, 4, 1)]
+    evolve!(psi, gates, 3; chi_policy=:adaptive, maxdim=8)
+
+    @test right_canonical_err(psi) < 1e-8
+    @test isapprox(iTEBD.inner_product(psi), 1.0; atol=1e-8)
+    # Adaptive ratchet: bond dim never falls below initial.
+    @test all(length(psi.λ[i]) >= initial_dims[i] for i in 1:psi.n)
+end
+
 @testset "EVOLVE_FOURTH_ORDER_INTEGRATION" begin
     # End-to-end check: evolve! consuming a fourth-order Trotter schedule on
     # an iMPS should preserve norm and stay closer to the unitary evolution
