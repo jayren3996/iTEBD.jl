@@ -392,7 +392,12 @@ function getindex(mps::iMPS{T,S}, i::Integer) where {T,S}
     Γ = copy(mps.Γ[i])
     λ_internal = mps.λ[i]
     # Divide out the right Schmidt values in-place, avoiding the allocation
-    # of a full reciprocal vector.
+    # of a full reciprocal vector. Use rtol = 0 (only the absolute ZEROTOL
+    # cuts in) so that small-but-physical Schmidt values are inverted, not
+    # zeroed: a state with λ = [1.0, 1e-9] should still produce a Vidal Γ
+    # with the second mode intact. If your state has noise-level Schmidt
+    # values that you want dropped, recanonicalize with a tighter `cutoff`
+    # first rather than relying on getindex to filter.
     β = size(Γ, 3)
     Γ_reshaped = reshape(Γ, :, β)
     tol = _support_tol(λ_internal; atol=ZEROTOL, rtol=zero(S))
