@@ -33,20 +33,25 @@ end
 
 @testset "ENERGY_FIX_CONVERGES" begin
     P = pauli_matrices()
-    ψ = product_iMPS(ComplexF64, [[1, 0], [1, 0]])
-    h = P.Z
+    # Use an off-diagonal Hamiltonian so imaginary-time evolution can actually
+    # rotate the state. h = Z (the original choice) is degenerate on its own
+    # eigenstates — exp(-dτ Z) leaves |↑⟩ and |↓⟩ pointing in the same
+    # direction, so _energy_fix! has nothing to act on. With h = X, |↑↑⟩ has
+    # ⟨X⟩ = 0 and applying exp(-dτ X) tilts the state toward the |−−⟩ ground
+    # state (E = -1), passing through any target in (-1, 0).
+    h = P.X
+    target = -0.5
 
-    target = 0.5
-    ψ_copy = deepcopy(ψ)
-    iTEBD._energy_fix!(ψ_copy, h, 4; span=1, target=target, tol=1e-6, α=0.1, maxstep=50)
-    E_final = energy_density(ψ_copy, h; span=1)
+    ψ = product_iMPS(ComplexF64, [[1, 0], [1, 0]])
+    iTEBD._energy_fix!(ψ, h, 4; span=1, target=target, tol=1e-6, α=0.1, maxstep=50)
+    E_final = energy_density(ψ, h; span=1)
     @test E_final ≈ target atol=1e-3
 
-    # Should also work when starting far from target
-    ψ2 = product_iMPS(ComplexF64, [[1, 0], [0, 1]])
-    iTEBD._energy_fix!(ψ2, h, 4; span=1, target=target, tol=1e-6, α=0.1, maxstep=50)
+    # Symmetric case: pull the energy upward instead.
+    ψ2 = product_iMPS(ComplexF64, [[1, 0], [1, 0]])
+    iTEBD._energy_fix!(ψ2, h, 4; span=1, target=+0.5, tol=1e-6, α=0.1, maxstep=50)
     E_final2 = energy_density(ψ2, h; span=1)
-    @test abs(E_final2 - target) < 0.1
+    @test abs(E_final2 - 0.5) < 1e-3
 end
 
 # =============================================================================
