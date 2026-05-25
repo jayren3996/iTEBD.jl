@@ -18,7 +18,7 @@ import LinearAlgebra: conj
 include("TensorAlgebra.jl")
 include("Contractions.jl")
 include("iMPS.jl")
-include("ITensors.jl")
+include("ITensorsInterop.jl")
 include("Gate.jl")
 include("Schmidt.jl")
 include("Krylov.jl")
