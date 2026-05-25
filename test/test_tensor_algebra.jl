@@ -63,6 +63,28 @@ end
     @test iTEBD.tensor_group(Γs) ≈ grouped atol=1e-10
 end
 
+@testset "TENSOR_DECOMP_HANDLES_SINGLE_SITE_UNITCELL" begin
+    # n = 1 means there are no internal bonds to split — the routine should
+    # return Γ unchanged with an empty λs. Previously the unguarded epilogue
+    # tried to write Γs[0] and λs[0], throwing BoundsError.
+    Γ = deterministic_tensor(4, 2, 4)
+    λ = ones(4)
+
+    Γs, λs = iTEBD.tensor_decomp!(copy(Γ), λ, 1)
+    @test length(Γs) == 1
+    @test length(λs) == 0
+    @test Γs[1] ≈ Γ atol=1e-12
+
+    # return_stats path: bond_stats vector is empty (no internal bonds).
+    Γs2, λs2, bond_stats = iTEBD.tensor_decomp!(copy(Γ), λ, 1; return_stats=true)
+    @test length(Γs2) == 1
+    @test length(λs2) == 0
+    @test isempty(bond_stats)
+
+    # n = 0 is rejected explicitly.
+    @test_throws ArgumentError iTEBD.tensor_decomp!(copy(Γ), λ, 0)
+end
+
 @testset "SVD_TRIM_THRESHOLDS_AND_RENORMALIZES" begin
     M = Matrix(Diagonal([4.0, 2.0, 1e-13, 0.0]))
 

@@ -651,12 +651,20 @@ function tensor_decomp!(
     atol::Real=ZEROTOL,
     rtol::Real=eps(Float64),
 )
+    n > 0 || throw(ArgumentError("tensor_decomp! requires n > 0 (got $n)"))
     β = size(Γ, 3)
     d = round(Int, size(Γ, 2)^(1/n))
     d^n == size(Γ, 2) || throw(ArgumentError(
         "inferred physical dimension d=$d does not satisfy d^$n == $(size(Γ, 2)); " *
         "grouped tensor has malformed physical leg size"
     ))
+    if n == 1
+        # Single-site unit cell: no internal bonds to decompose. Return Γ as
+        # the only site tensor with an empty λ vector (n - 1 = 0 bonds).
+        Γs = [copy(Γ)]
+        λs = Vector{Vector{eltype(λl)}}()
+        return return_stats ? (Γs, λs, BondStat[]) : (Γs, λs)
+    end
     Γs = Vector{Array{eltype(Γ), 3}}(undef, n)
     λs = Vector{Vector{eltype(λl)}}(undef, n-1)
     bond_stats = return_stats ? BondStat[] : nothing
