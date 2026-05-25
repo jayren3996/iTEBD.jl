@@ -314,6 +314,14 @@ function _validate_trotter_scheme(num_layers::Integer, trotter::Symbol)
     num_layers > 0 || throw(ArgumentError("layers must contain at least one commuting layer"))
     trotter in (:second, :fourth, :fourth_opt) ||
         throw(ArgumentError("unknown trotter scheme $(repr(trotter)); use :second, :fourth, or :fourth_opt"))
+    if trotter === :fourth && num_layers < 2
+        throw(ArgumentError(
+            "trotter = :fourth requires at least two commuting layers " *
+            "(single-layer Hamiltonians silently degrade to first-order Euler " *
+            "because the five Suzuki substeps merge into one stage); use " *
+            ":second for single-layer evolution, or split the Hamiltonian " *
+            "into commuting layers."))
+    end
     if trotter === :fourth_opt && num_layers != 2
         throw(ArgumentError("trotter = :fourth_opt requires exactly two commuting layers"))
     end

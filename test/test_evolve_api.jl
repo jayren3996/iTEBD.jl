@@ -137,6 +137,7 @@ end
 
 @testset "TROTTER_VALIDATION" begin
     X = [0.0 1.0; 1.0 0.0]
+    layers1 = [[(X, 1, 1)]]
     layers2 = [[(X, 1, 1)], [(X, 1, 1)]]
     layers3 = [[(X, 1, 1)], [(X, 1, 1)], [(X, 1, 1)]]
     psi = product_iMPS(ComplexF64, [[1, 0]])
@@ -145,6 +146,12 @@ end
     @test_throws ArgumentError trotter_gates(layers2, 0.1; trotter=:fourth, evolution=:imaginary)
     @test_throws ArgumentError evolve!(psi, layers3, 0.1, 1; trotter=:fourth_opt)
     @test_throws ArgumentError evolve!(psi, layers2, 0.1, 1; trotter=:fourth_opt, evolution=:imaginary)
+
+    # trotter=:fourth with a single layer would silently collapse to a
+    # first-order Euler step because the five Suzuki substeps all target the
+    # same layer and merge into one stage. Reject up front.
+    @test_throws ArgumentError trotter_gates(layers1, 0.1; trotter=:fourth)
+    @test_throws ArgumentError evolve!(psi, layers1, 0.1, 1; trotter=:fourth)
 end
 
 @testset "ADAPTIVE_POLICY_VALID_STATE" begin
