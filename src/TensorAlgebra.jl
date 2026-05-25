@@ -144,8 +144,20 @@ Notes:
   `Γ`, avoiding replacement of the array reference in the parent `iMPS`.
 """
 function tensor_umul!(umat::AbstractMatrix, Γ::AbstractArray{<:Number, 3})
-    @tensor tmp[:] := umat[-2,1] * Γ[-1,1,-3]
-    Γ .= tmp
+    Dl, d, Dr = size(Γ)
+    size(umat) == (d, d) ||
+        throw(DimensionMismatch("umat is $(size(umat)) but Γ has physical dim $d"))
+    # The previous @tensor implementation allocated a full (Dl, d, Dr)
+    # temporary on every call — the iTEBD hot path. Loop over the rightmost
+    # axis instead and use mul! into a single (Dl, d) buffer, dropping the
+    # per-call allocation from O(Dl·d·Dr) to O(Dl·d).
+    Γ_new_slice = Array{eltype(Γ)}(undef, Dl, d)
+    umat_t = transpose(umat)
+    @inbounds for β in 1:Dr
+        Γ_slice = view(Γ, :, :, β)
+        mul!(Γ_new_slice, Γ_slice, umat_t)
+        copyto!(Γ_slice, Γ_new_slice)
+    end
     return Γ
 end
 
