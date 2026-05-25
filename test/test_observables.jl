@@ -145,6 +145,32 @@ end
     @test entanglement_entropy([0.5, 0.5, 1e-12]; cutoff=1e-10) ≈ log(2) atol=1e-12
 end
 
+@testset "INNER_PRODUCT_ACCEPTS_KRYLOV_KWARGS" begin
+    # The tol/maxiter kwargs were previously not exposed; users couldn't
+    # tighten convergence for high-precision overlaps or loosen it for cheap
+    # probes. Verify the kwargs are accepted on every public method and that
+    # default behavior is unchanged.
+    using Random
+    Random.seed!(2026_05_25)
+
+    psi = rand_iMPS(ComplexF64, 2, 2, 4)
+    canonical!(psi)
+    default = iTEBD.inner_product(psi)
+    tight   = iTEBD.inner_product(psi; tol=1e-14)
+    loose   = iTEBD.inner_product(psi; tol=1e-6, maxiter=20)
+
+    @test default ≈ 1.0 atol=1e-10
+    @test tight   ≈ 1.0 atol=1e-10
+    @test loose   ≈ 1.0 atol=1e-4
+
+    # Two-arg form on tensor vectors.
+    @test iTEBD.inner_product(psi.Γ, psi.Γ; tol=1e-12, maxiter=50) ≈ 1.0 atol=1e-10
+
+    # Single-tensor form.
+    T = first(psi.Γ)
+    @test iTEBD.inner_product(T; tol=1e-12) ≈ iTEBD.inner_product(T) atol=1e-10
+end
+
 @testset "ENT_S_PRODUCT_STATE_IS_ZERO" begin
     # Product states have Schmidt rank 1, so the bipartite entropy across
     # every bond is zero.

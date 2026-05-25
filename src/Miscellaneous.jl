@@ -130,8 +130,8 @@ end
 #---------------------------------------------------------------------------------------------------
 export inner_product
 """
-    inner_product(T)
-    inner_product(T1, T2)
+    inner_product(T; tol=nothing, maxiter=nothing)
+    inner_product(T1, T2; tol=nothing, maxiter=nothing)
 
 Return the overlap per unit cell defined by the dominant eigenvalue of a
 transfer matrix.
@@ -150,6 +150,16 @@ the magnitude of its dominant eigenvalue. For the one-argument form
 `inner_product(T)`, this reduces to the corresponding norm per unit cell,
 obtained from the dominant eigenvalue of the self-transfer matrix.
 
+Keyword arguments:
+- `tol=nothing`
+  Convergence tolerance forwarded to `KrylovKit.eigsolve`. `nothing` keeps the
+  KrylovKit default. Tighten (e.g. `1e-14`) for high-precision overlaps,
+  loosen (e.g. `1e-6`) for cheap probes.
+- `maxiter=nothing`
+  Maximum number of Krylov restarts forwarded to `eigsolve`. `nothing` keeps
+  the default. Raise it if the warning "Krylov solver did not converge" fires
+  on a state whose dominant eigenvalue is close to the next one.
+
 Returns:
 - A scalar overlap or norm per unit cell extracted from the dominant
   transfer-matrix eigenvalue.
@@ -162,26 +172,42 @@ Notes:
 - For `iMPS` inputs, the relevant transfer matrix is the product over the whole
   unit cell, not a single local tensor.
 - The implementation returns the absolute value of the dominant eigenvalue.
+- Below `dense_threshold` (default 8), the dense `gtrm + eigen` path is used
+  and `tol`/`maxiter` only affect the Krylov fallback path (large transfers).
 """
-inner_product(T::iMPS) = inner_product(T, T)
-inner_product(mps1::iMPS, mps2::iMPS) = inner_product(mps1.Γ, mps2.Γ)
+inner_product(T::iMPS; kwargs...) = inner_product(T, T; kwargs...)
+inner_product(mps1::iMPS, mps2::iMPS; kwargs...) =
+    inner_product(mps1.Γ, mps2.Γ; kwargs...)
 #---------------------------------------------------------------------------------------------------
-inner_product(T::AbstractArray{<:Number, 3}) = inner_product(T, T)
+inner_product(T::AbstractArray{<:Number, 3}; kwargs...) = inner_product(T, T; kwargs...)
 function inner_product(
     T1::AbstractArray{<:Number, 3},
-    T2::AbstractArray{<:Number, 3},
+    T2::AbstractArray{<:Number, 3};
+    kwargs...
 )
-    _dominant_chain_eigenvalue([T1], [T2])
+    _dominant_chain_eigenvalue([T1], [T2]; kwargs...)
 end
 #---------------------------------------------------------------------------------------------------
-function inner_product(Ts::AbstractVector{<:AbstractArray{<:Number, 3}})
-    inner_product(Ts, Ts)
+function inner_product(Ts::AbstractVector{<:AbstractArray{<:Number, 3}}; kwargs...)
+    inner_product(Ts, Ts; kwargs...)
 end
 function inner_product(
     T1s::AbstractVector{<:AbstractArray{<:Number, 3}},
-    T2s::AbstractVector{<:AbstractArray{<:Number, 3}},
+    T2s::AbstractVector{<:AbstractArray{<:Number, 3}};
+    kwargs...
 )
-    _dominant_chain_eigenvalue(T1s, T2s)
+    _dominant_chain_eigenvalue(T1s, T2s; kwargs...)
+end
+
+# Build a NamedTuple of only the user-supplied Krylov options, leaving the
+# rest at KrylovKit's defaults. Keeps the eigsolve call site readable and
+# avoids hard-coding KrylovKit's internal default values here.
+function _krylov_opts(; tol::Union{Nothing,Real}=nothing,
+                       maxiter::Union{Nothing,Integer}=nothing)
+    opts = NamedTuple()
+    isnothing(tol)     || (opts = merge(opts, (; tol)))
+    isnothing(maxiter) || (opts = merge(opts, (; maxiter)))
+    return opts
 end
 
 # Threshold below which the dense `gtrm + eigen` path is competitive with the
@@ -194,6 +220,8 @@ function _dominant_chain_eigenvalue(
     T1s::AbstractVector{<:AbstractArray{<:Number, 3}},
     T2s::AbstractVector{<:AbstractArray{<:Number, 3}};
     dense_threshold::Integer=_CHAIN_EIG_DENSE_THRESHOLD,
+    tol::Union{Nothing,Real}=nothing,
+    maxiter::Union{Nothing,Integer}=nothing,
 )
     n = length(T1s)
     n == length(T2s) || throw(ArgumentError(
@@ -211,7 +239,7 @@ function _dominant_chain_eigenvalue(
     ))
 
     if max(χL_T1, χL_T2) <= dense_threshold
-        return _dominant_eigenvalue_dense(gtrm(T1s, T2s))
+        return _dominant_eigenvalue_dense(gtrm(T1s, T2s); tol, maxiter)
     end
 
     T = promote_type(eltype(T1s[1]), eltype(T2s[1]))
@@ -235,24 +263,30 @@ function _dominant_chain_eigenvalue(
         return out
     end
 
-    vals, _, info = eigsolve(f, vec(seed), 1, :LM; ishermitian=false)
+    opts = _krylov_opts(; tol, maxiter)
+    vals, _, info = eigsolve(f, vec(seed), 1, :LM; ishermitian=false, opts...)
     if info.converged < 1
         # Random unstructured transfers occasionally fail to converge with the
         # default Krylov budget; fall back to the dense path for correctness.
         @warn "Dominant chain eigenvalue Krylov solver did not converge; " *
               "falling back to dense path" info
-        return _dominant_eigenvalue_dense(gtrm(T1s, T2s))
+        return _dominant_eigenvalue_dense(gtrm(T1s, T2s); tol, maxiter)
     end
     return abs(vals[1])
 end
 
-function _dominant_eigenvalue_dense(trmat::AbstractMatrix)
+function _dominant_eigenvalue_dense(
+    trmat::AbstractMatrix;
+    tol::Union{Nothing,Real}=nothing,
+    maxiter::Union{Nothing,Integer}=nothing,
+)
     if size(trmat, 1) <= 4096
         vals, _ = eigen(trmat)
         idx = argmax(abs.(vals))
         return abs(vals[idx])
     end
-    vals, _, info = eigsolve(trmat, 1, :LM; ishermitian=false)
+    opts = _krylov_opts(; tol, maxiter)
+    vals, _, info = eigsolve(trmat, 1, :LM; ishermitian=false, opts...)
     if info.converged < 1
         # Previously this warned and returned abs(vals[1]) anyway, masking the
         # divergence. Callers downstream (norm, overlap, fixed-point checks)
