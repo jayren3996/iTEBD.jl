@@ -340,6 +340,13 @@ function _energy_fix!(
         end
         dE = dE2
     end
+    # Loop exhausted without bracketing the target. Warn so the caller can
+    # tell convergence from quiet failure; previously this returned silently
+    # and the caller had no way to distinguish converged from non-converged
+    # energy fixing. Tune `α`, `maxstep`, or relax `target` if this fires.
+    if abs(dE) > tol
+        @warn "_energy_fix! did not bracket the target energy within maxstep" target dE tol maxstep α maxlog=1
+    end
     return ψ
 end
 
@@ -385,6 +392,19 @@ function _minimize_on_trajectory!(f, step!, ψ::iMPS, samples::Integer)
     _copy_imps_state!(ψ, best_state)
     return ψ
 end
+
+"""
+    _refinement_objective(ψ)
+
+Worst-case bond entropy of the iMPS unit cell, used as the objective for the
+ScarFinder refinement scan. Minimizing this picks the trajectory point with
+the lowest peak entanglement across all bonds, which is the right criterion
+for a translationally-invariant scar state: a low maximum across bonds means
+all bonds are low. Previously the scan minimized `ent_S(ψ, ψ.n)` (only the
+wraparound bond), which for `n > 1` is one bond out of many and can prefer
+states where entanglement has merely migrated to other bonds.
+"""
+_refinement_objective(ψ::iMPS) = maximum(ent_S(ψ, i) for i in 1:ψ.n)
 
 function _copy_imps_state!(dst::iMPS, src::iMPS)
     dst.n == src.n ||
@@ -696,7 +716,7 @@ function scarfinder!(
     end
     if refine
         step! = ψ0 -> scarfinder_step!(ψ0, h, refine_dt, χ; kwargs...)
-        _minimize_on_trajectory!(x -> ent_S(x, x.n), step!, ψ, refine_step)
+        _minimize_on_trajectory!(_refinement_objective, step!, ψ, refine_step)
     end
     return ψ
 end
@@ -752,7 +772,7 @@ function scarfinder!(
     end
     if refine
         step! = ψ0 -> scarfinder_step!(ψ0, G, χ; kwargs...)
-        _minimize_on_trajectory!(x -> ent_S(x, x.n), step!, ψ, refine_step)
+        _minimize_on_trajectory!(_refinement_objective, step!, ψ, refine_step)
     end
     return ψ
 end
@@ -812,7 +832,7 @@ function scarfinder!(
     end
     if refine
         step! = ψ0 -> scarfinder_step!(ψ0, G, h, χ; kwargs...)
-        _minimize_on_trajectory!(x -> ent_S(x, x.n), step!, ψ, refine_step)
+        _minimize_on_trajectory!(_refinement_objective, step!, ψ, refine_step)
     end
     return ψ
 end

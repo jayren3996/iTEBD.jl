@@ -134,7 +134,8 @@ end
     scarfinder!(psi_no_refine, G, h_pxp, χ, N; refine=false,                            common_kwargs...)
     scarfinder!(psi_refine,    G, h_pxp, χ, N; refine=true, refine_step=20,             common_kwargs...)
 
-    # The refinement scan's selection criterion is `ent_S(x, x.n)`, so the
-    # returned state should have entropy ≤ the non-refined state on that bond.
-    @test ent_S(psi_refine, psi_refine.n) <= ent_S(psi_no_refine, psi_no_refine.n) + 1e-10
+    # The refinement scan minimizes max-over-bonds entropy, so the returned
+    # state should have a worst-bond entropy ≤ the non-refined state's.
+    worst(ψ) = maximum(ent_S(ψ, i) for i in 1:ψ.n)
+    @test worst(psi_refine) <= worst(psi_no_refine) + 1e-10
 end
