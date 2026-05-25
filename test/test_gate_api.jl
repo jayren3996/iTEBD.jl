@@ -8,7 +8,7 @@ Random.seed!(20260523)
 if !isdefined(Main, :TestUtils)
     include(joinpath(@__DIR__, "test_utils.jl"))
 end
-using .TestUtils: bell_gate, pauli_matrices
+using .TestUtils: bell_gate, pauli_matrices, right_canonical_error
 
 @testset "GATE_INDICES_NON_WRAPPING" begin
     psi = product_iMPS(ComplexF64, [[1,0], [0,1], [1,0]])
@@ -108,6 +108,42 @@ end
     @test stats.support == (3, 1)
     @test length.(ψ_wrapped.λ) == length.(ψ_direct.λ)
     @test iTEBD.inner_product(ψ_wrapped, ψ_direct) ≈ 1.0 atol=1e-12
+end
+
+@testset "APPLYGATE_WRAPAROUND_RESTORES_CANONICAL_FORM" begin
+    # Wrap-around gates used to leave the iMPS non-canonical because the
+    # local SVD inside tensor_applygate! only canonicalizes the affected
+    # block, not the wraparound seam to the rest of the cell. Verify the
+    # post-gate state passes the right-canonical invariant.
+    Random.seed!(2026_05_25)
+    ψ = rand_iMPS(ComplexF64, 4, 2, 4)
+    canonical!(ψ)
+    @test right_canonical_error(ψ) < 1e-10  # baseline
+
+    Z = ComplexF64[1 0; 0 -1]
+    X = ComplexF64[0 1; 1 0]
+    G = exp(-0.1im * kron(Z, X))
+    applygate!(ψ, G, 4, 1)  # j < i → wraparound
+
+    @test right_canonical_error(ψ) < 1e-10
+    @test iTEBD.inner_product(ψ) ≈ 1.0 atol=1e-10
+end
+
+@testset "APPLYGATE_SINGLE_SITE_RENORMALIZES_NON_UNITARY_GATE" begin
+    # The single-site path used to silently ignore renormalize=true. A
+    # non-unitary 1-site gate (e.g. an imaginary-time term exp(-dτ h))
+    # would leave the per-cell norm drifted to exp(-2dτ⟨h⟩) instead of 1.
+    P = pauli_matrices()
+    ψ = product_iMPS(ComplexF64, [[1, 0], [0, 1]])  # site 2 is |↓⟩
+    G = exp(-0.5 * P.Z)  # |↓⟩ has Z=-1, so G|↓⟩ = exp(0.5)|↓⟩
+    applygate!(ψ, G, 2, 2; renormalize=true)
+    @test iTEBD.inner_product(ψ) ≈ 1.0 atol=1e-12
+
+    # renormalize=false preserves the un-normalized magnitude so the caller
+    # can rescale themselves; verify the documented opt-out works.
+    ψ2 = product_iMPS(ComplexF64, [[1, 0], [0, 1]])
+    applygate!(ψ2, G, 2, 2; renormalize=false)
+    @test iTEBD.inner_product(ψ2) ≈ exp(1) atol=1e-12  # |exp(0.5)|² = e
 end
 
 @testset "LEGACY_CUTOFF_KEYWORD_IS_ACCEPTED" begin

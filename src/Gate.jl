@@ -151,6 +151,14 @@ function applygate!(
     i0, j0 = _normalize_gate_sites(ψ, i, j)
     if isequal(i0, j0)
         tensor_umul!(G, ψ.Γ[i0])
+        if renormalize
+            # Single-site gates can be non-unitary (e.g. imaginary-time terms
+            # like exp(-dτ * h_local)). The previous code accepted
+            # renormalize=true but silently ignored it here, so the per-cell
+            # norm drifted away from 1 after every non-unitary 1-site update.
+            scale = inner_product(ψ)
+            scale > 0 && (ψ.Γ[i0] ./= sqrt(scale))
+        end
         if return_stats
             return ψ, (
                 support=(i0, j0),
@@ -193,6 +201,15 @@ function applygate!(
     for k in eachindex(inds)
         ψ.Γ[inds[k]] = Γs[k]
         ψ.λ[inds[k]] = λs[k]
+    end
+    # Wrap-around gates (j0 < i0) update the block but leave the left
+    # transfer-matrix fixed point inconsistent at the wraparound seam: the
+    # local SVD inside tensor_applygate! makes the new tensors right-canonical
+    # within the block, but the global canonical form is not restored. A
+    # repro on a 4-site cell shows right_canonical_error jumping from ~1e-14
+    # to ~1e-3 after a single wrap gate. Re-canonicalize the cell.
+    if j0 < i0
+        canonical!(ψ; maxdim, cutoff=svd_floor, renormalize)
     end
     return_stats && return ψ, _gate_update_stats(i0, j0, bond_stats)
     return ψ
