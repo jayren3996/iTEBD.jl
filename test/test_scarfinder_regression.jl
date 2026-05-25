@@ -103,7 +103,11 @@ end
 
     @test trial_steps[] == length(values) - 1
     @test eval_count[] == length(values)
-    @test replay_steps[] == 10
+    # The current implementation copies the minimizing trial state directly
+    # back into ψ instead of replaying step! (see _minimize_on_trajectory!:
+    # gauge phases on degenerate Schmidt spectra are not reproducible across
+    # SVD replays). So no step!(ψ) calls happen during the restore.
+    @test replay_steps[] == 0
 end
 
 @testset "MINIMIZE_ON_TRAJECTORY_CONSIDERS_INITIAL_STATE" begin

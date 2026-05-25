@@ -14,6 +14,7 @@ const TEST_GROUPS = Dict(
         "test_gate_api.jl",
         "test_krylov.jl",
         "test_scarfinder_api.jl",
+        "test_scarfinder_regression.jl",
         "test_performance_improvements.jl",
         "test_schmidt_fixes.jl",
         "test_imps_fixes.jl",
@@ -28,7 +29,6 @@ const TEST_GROUPS = Dict(
     ],
     "bench" => [
         "test_bench_smoke.jl",
-        "test_scarfinder_performance.jl",
         "test_pxp_legacy_smoke.jl",
     ],
     "integration" => [
