@@ -711,11 +711,20 @@ function scarfinder!(
     refine_step::Integer=100,
     kwargs...
 )
+    # Build the real-time gate once per scarfinder! call instead of per
+    # scarfinder_step! call. Previously exp(-1im*dt*h) was a dense matrix
+    # exponential redone on every iteration (N times for the main loop plus
+    # refine_step times for the refinement scan), which dominated the cost
+    # for large local Hilbert spaces. Dispatching to the mixed
+    # scarfinder_step!(ψ, G, h, χ; ...) interface keeps the energy-fixing
+    # path identical because G = exp(-1im*dt*h) has the same support as h.
+    G_main = exp(-1im * dt * h)
     for _ in 1:N
-        scarfinder_step!(ψ, h, dt, χ; kwargs...)
+        scarfinder_step!(ψ, G_main, h, χ; kwargs...)
     end
     if refine
-        step! = ψ0 -> scarfinder_step!(ψ0, h, refine_dt, χ; kwargs...)
+        G_refine = exp(-1im * refine_dt * h)
+        step! = ψ0 -> scarfinder_step!(ψ0, G_refine, h, χ; kwargs...)
         _minimize_on_trajectory!(_refinement_objective, step!, ψ, refine_step)
     end
     return ψ
