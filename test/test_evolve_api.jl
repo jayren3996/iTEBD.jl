@@ -124,6 +124,28 @@ end
     @test err_fourth_opt < err_second
 end
 
+@testset "EVOLVE_FOURTH_ORDER_INTEGRATION" begin
+    # End-to-end check: evolve! consuming a fourth-order Trotter schedule on
+    # an iMPS should preserve norm and stay closer to the unitary evolution
+    # than :second at small dt. Previously the test suite only exercised
+    # fourth-order schemes at the gate-product level (TROTTER_DENSE_ACCURACY),
+    # so a regression in how evolve! wires the fourth-order stage list into
+    # the iMPS update loop could ship silently.
+    X = ComplexF64[0 1; 1 0]
+    Z = ComplexF64[1 0; 0 -1]
+    H = kron(X, X) + 0.3 * kron(Z, Z)
+    layers = [[(H, 1, 2)], [(H, 2, 1)]]
+
+    for scheme in (:fourth, :fourth_opt)
+        psi = product_iMPS(ComplexF64, [[1, 0], [0, 1]])
+        evolve!(psi, layers, 0.05, 5; trotter=scheme, evolution=:real, maxdim=8)
+        # Norm should hold up under unitary real-time evolution.
+        @test isapprox(iTEBD.inner_product(psi), 1.0; atol=1e-6)
+        # Bond dim should respect the cap.
+        @test maximum(length.(psi.λ)) <= 8
+    end
+end
+
 @testset "TROTTER_IMAGINARY_PROMOTES_ALL_LAYER_ELEMENT_TYPES" begin
     X = Float64[0 1; 1 0]
     Y = ComplexF64[0 -im; im 0]
