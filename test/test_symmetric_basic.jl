@@ -4,7 +4,7 @@ using iTEBD
 # Explicit imports from TensorKit to avoid name conflicts with ITensors
 # (both are test dependencies and share some exported names like `dim`, `space`).
 using TensorKit: U1Irrep, Z2Irrep, ZNIrrep, Vect, dim, block, space, id,
-                 ComplexSpace, sectortype
+                 ComplexSpace, sectortype, domain, codomain
 
 @testset "graded_space" begin
     P = graded_space(:U1, 0=>2, 1=>1, -1=>1)
@@ -77,4 +77,22 @@ end
         @test Sz isa AbstractMatrix
         @test isapprox(Sx*Sx + Sy*Sy + Sz*Sz, 0.75 * Id; atol=1e-12)
     end
+end
+
+@testset "rand_iMPS symmetric (raw spaces)" begin
+    P = graded_space(:U1, 1=>1, -1=>1)
+    V = graded_space(:U1, 0=>2, 2=>1, -2=>1)
+    ψ = rand_iMPS(P, V, 2)
+    @test ψ isa iTEBD.SymmetricIMPS
+    @test ψ.n == 2
+    @test length(ψ.Γ) == 2 && length(ψ.λ) == 2
+    # Domain/codomain check: each Γ[i] should map V ⊗ P → V (rank-3 in MPS shape).
+    for i in 1:2
+        @test codomain(ψ.Γ[i])[1] == V
+        @test codomain(ψ.Γ[i])[2] == P
+        @test domain(ψ.Γ[i])[1] == V
+    end
+    # Wraparound: right-leg of Γ[end] equals left-leg of Γ[1] (trivially true here
+    # because all Γ are constructed from the same V).
+    @test domain(ψ.Γ[end])[1] == codomain(ψ.Γ[1])[1]
 end

@@ -6,7 +6,22 @@
 # TensorKit` first. The extension shadows them with real methods automatically
 # when TensorKit is loaded.
 #---------------------------------------------------------------------------------------------------
-export graded_space, spin_half_ops, schmidt_values
+export graded_space, spin_half_ops, schmidt_values, SymmetricIMPS
+
+# `SymmetricIMPS` — the TensorKit-backed variant of `iMPS`. Declared here so
+# that the name is in the `iTEBD` namespace and accessible as `iTEBD.SymmetricIMPS`
+# in tests/user code even before TensorKit is loaded.
+#
+# In the base package, we give it the widest possible type parameters
+# (`Any, Any`) so that `ψ isa SymmetricIMPS` is still meaningful: it matches
+# any `iMPS`, acting as a no-op sentinel. The TensorKit extension narrows this
+# definition to `iMPS{<:AbstractTensorMap, <:DiagonalTensorMap}` at load time
+# by re-exporting the tighter alias.
+#
+# The practical effect: `ψ isa iTEBD.SymmetricIMPS` works correctly in both the
+# "no TensorKit" case (true for all iMPS, acceptable) and the "TensorKit loaded"
+# case (the extension's export shadows this stub in the local scope via `using`).
+const SymmetricIMPS = iMPS
 
 const _NEEDS_TENSORKIT = """
 This entry point requires the TensorKit backend. Run `using TensorKit` in your \
