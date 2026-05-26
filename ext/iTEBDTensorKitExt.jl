@@ -117,9 +117,27 @@ end
 
 spin_half_ops(sym::Symbol) = spin_half_ops(Val(sym))
 
-# This module is currently a skeleton. Method bodies are populated by
-# subsequent chunks of the implementation plan:
-#   Chunk 3 — graded_space, spin_half_ops, schmidt_values
+function schmidt_values(ψ::SymmetricIMPS, i::Integer)
+    1 ≤ i ≤ ψ.n || throw(BoundsError(ψ.λ, i))
+    return _flatten_diagonal_blocks(ψ.λ[i])
+end
+
+# Internal: flatten a DiagonalTensorMap's per-sector diagonal blocks into a
+# single descending-sorted Vector{Float64}.
+# In TensorKit 0.16, blocks(λ::DiagonalTensorMap) yields (sector, Diagonal{...})
+# pairs where each block is a Diagonal matrix; diag(blk) extracts the values.
+function _flatten_diagonal_blocks(λ::DiagonalTensorMap)
+    out = Float64[]
+    for (_sector, blk) in blocks(λ)
+        for v in diag(blk)
+            push!(out, Float64(real(v)))
+        end
+    end
+    sort!(out; rev=true)
+    return out
+end
+
+# Remaining method bodies are populated by subsequent chunks:
 #   Chunk 4 — rand_iMPS / product_iMPS symmetric constructors,
 #             _validate_iMPS_bonds specialisation
 #   Chunks 5-7 — canonical!, applygate!, expect, energy_density, ent_S
