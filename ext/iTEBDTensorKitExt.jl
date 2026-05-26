@@ -11,6 +11,31 @@ import iTEBD: graded_space, spin_half_ops, schmidt_values
 import iTEBD: rand_iMPS, product_iMPS
 import iTEBD: iMPS, _validate_iMPS_bonds
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Chunk 3: Helper layer
+# ─────────────────────────────────────────────────────────────────────────────
+
+"""
+    graded_space(symmetry::Symbol, charges_to_dims...)
+
+Build a TensorKit graded vector space for a named Abelian symmetry without
+forcing the user to import TensorKit's irrep types directly.
+
+Supported `symmetry` values: `:U1`, `:Z2`, `:ZN`, `:U1xU1`, `:U1xZ2`,
+`:Trivial`. For `:ZN` the second positional argument is the order `N`.
+
+Examples:
+    graded_space(:U1, 0=>2, 1=>1, -1=>1)
+    graded_space(:Z2, 0=>3, 1=>3)
+    graded_space(:ZN, 4, 0=>1, 1=>1, 2=>1, 3=>1)
+    graded_space(:U1xU1, (0,0)=>2, (1,-1)=>1)
+"""
+function graded_space(::Val{:U1}, pairs::Pair{Int,Int}...)
+    return Vect[U1Irrep](Int(c) => Int(d) for (c, d) in pairs)
+end
+
+graded_space(sym::Symbol, args...) = graded_space(Val(sym), args...)
+
 # `SymmetricIMPS` — the TensorKit-backed variant of `iMPS`. The exact
 # `AbstractTensorMap` parameters are deliberately unconstrained here so the
 # alias matches any U(1)/Z_N/product-sector graded-space tensors that later
