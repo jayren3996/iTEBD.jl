@@ -18,3 +18,25 @@ using iTEBD
         @test ψ.n == 2
     end
 end
+
+@testset "TensorKit-extension stubs (base package, no TensorKit loaded)" begin
+    # `graded_space(:U1, …)` without TensorKit gives the actionable
+    # "load TensorKit" error rather than a confusing MethodError.
+    err = try
+        graded_space(:U1, 0=>1)
+        nothing
+    catch e
+        e
+    end
+    @test err isa ErrorException
+    @test occursin("TensorKit", err.msg)
+
+    # `schmidt_values` on the dense backend returns a Vector{Float64} that
+    # aliases the underlying λ when types already match — verify the type
+    # and the per-element values, but don't depend on aliasing (it's an
+    # implementation detail of `convert`).
+    ψ = rand_iMPS(ComplexF64, 2, 2, 3)
+    sv = schmidt_values(ψ, 1)
+    @test sv isa Vector{Float64}
+    @test sv == ψ.λ[1]
+end

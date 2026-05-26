@@ -17,6 +17,7 @@ import iTEBD: iMPS, _validate_iMPS_bonds
 # constructors produce. The wraparound bond-space check (Chunk 4) and all
 # algorithm specialisations (Chunks 5-7) dispatch on this alias.
 const SymmetricIMPS = iMPS{<:AbstractTensorMap, <:DiagonalTensorMap}
+export SymmetricIMPS
 
 # This module is currently a skeleton. Method bodies are populated by
 # subsequent chunks of the implementation plan:

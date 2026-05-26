@@ -27,7 +27,7 @@ backend (loaded via `using TensorKit`), the extension's specialisation
 flattens the per-sector diagonal blocks of `ψ.λ[i]::DiagonalTensorMap` into a
 single descending-sorted `Vector{Float64}`.
 """
-schmidt_values(ψ::DenseIMPS, i::Integer) = Float64.(ψ.λ[i])
+schmidt_values(ψ::DenseIMPS, i::Integer) = convert(Vector{Float64}, ψ.λ[i])
 
 # Symbol-dispatch stubs for symmetric constructors. The non-symbol methods of
 # `rand_iMPS` / `product_iMPS` are defined in `iMPS.jl` and remain dense-only;
