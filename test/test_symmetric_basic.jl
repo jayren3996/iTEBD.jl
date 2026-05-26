@@ -4,7 +4,7 @@ using iTEBD
 # Explicit imports from TensorKit to avoid name conflicts with ITensors
 # (both are test dependencies and share some exported names like `dim`, `space`).
 using TensorKit: U1Irrep, Z2Irrep, ZNIrrep, Vect, dim, block, space, id,
-                 ComplexSpace, sectortype, domain, codomain,
+                 ComplexSpace, sectortype, sectors, domain, codomain,
                  AbstractTensorMap, DiagonalTensorMap, ←, ⊗
 
 @testset "graded_space" begin
@@ -119,6 +119,16 @@ end
         @test dim(codomain(ψ.Γ[i])[1]) == 1
         @test dim(domain(ψ.Γ[i])[1]) == 1
     end
+    # Bond charges should be Sz=0 (cumulative before site 1) and Sz=+1 (after site 1)
+    @test sectortype(codomain(ψ.Γ[1])[1]) == U1Irrep
+    left_sectors_1  = collect(sectors(codomain(ψ.Γ[1])[1]))
+    right_sectors_1 = collect(sectors(domain(ψ.Γ[1])[1]))
+    @test left_sectors_1  == [U1Irrep(0)]
+    @test right_sectors_1 == [U1Irrep(1)]
+    left_sectors_2  = collect(sectors(codomain(ψ.Γ[2])[1]))
+    right_sectors_2 = collect(sectors(domain(ψ.Γ[2])[1]))
+    @test left_sectors_2  == [U1Irrep(1)]
+    @test right_sectors_2 == [U1Irrep(0)]
 end
 
 @testset "wraparound flux check rejects mismatched spaces" begin
@@ -134,6 +144,29 @@ end
     λ_dummy = [
         DiagonalTensorMap(ones(Float64, 1), Vb),
         DiagonalTensorMap(ones(Float64, 1), Va),
+    ]
+    @test_throws DimensionMismatch iMPS([Γ1, Γ2], λ_dummy, 2)
+end
+
+@testset "rand_iMPS(:Z2, charges, χ)" begin
+    ψ = rand_iMPS(:Z2, [0, 1]; χ=4, n=2)
+    @test ψ.Γ[1] isa AbstractTensorMap
+    @test ψ.λ[1] isa DiagonalTensorMap
+    @test ψ.n == 2
+    @test dim(domain(ψ.Γ[1])[1]) ≤ 4
+end
+
+@testset "wraparound seam (bond n→1) failure" begin
+    P  = graded_space(:U1, 1=>1, -1=>1)
+    Va = graded_space(:U1, 0=>1)
+    Vb = graded_space(:U1, 2=>1)
+    # Build two tensors where bonds 1..n-1 match but the seam from Γ[n] back
+    # to Γ[1] is broken: Γ[1].left=Va, Γ[2].right=Vb (not Va), so the seam fails.
+    Γ1 = zeros(ComplexF64, Va ⊗ P ← Va)
+    Γ2 = zeros(ComplexF64, Va ⊗ P ← Vb)
+    λ_dummy = [
+        DiagonalTensorMap(ones(Float64, 1), Va),
+        DiagonalTensorMap(ones(Float64, 1), Vb),
     ]
     @test_throws DimensionMismatch iMPS([Γ1, Γ2], λ_dummy, 2)
 end
