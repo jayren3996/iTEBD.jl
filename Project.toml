@@ -11,13 +11,6 @@ LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
 TensorOperations = "6aa20fa7-93e2-5fca-9bc0-fbd0db3c71a2"
 
-[extras]
-Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
-Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
-
-[targets]
-test = ["Random", "Test"]
-
 [weakdeps]
 TensorKit = "07d1fe3e-3e46-537d-9eac-e9e13d0d4cec"
 
@@ -27,3 +20,11 @@ iTEBDTensorKitExt = "TensorKit"
 [compat]
 TensorKit = "0.14, 0.15, 0.16"
 julia = "1.9"
+
+[extras]
+Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
+TensorKit = "07d1fe3e-3e46-537d-9eac-e9e13d0d4cec"
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+[targets]
+test = ["Random", "TensorKit", "Test"]
