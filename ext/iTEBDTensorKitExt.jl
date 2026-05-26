@@ -24,6 +24,10 @@ forcing the user to import TensorKit's irrep types directly.
 Supported `symmetry` values: `:U1`, `:Z2`, `:ZN`, `:U1xU1`, `:U1xZ2`,
 `:Trivial`. For `:ZN` the second positional argument is the order `N`.
 
+Product sectors use lowercase `x` as the ASCII form of TensorKit's `⊠`
+operator: `:U1xU1` is `U1Irrep ⊠ U1Irrep`, `:U1xZ2` is `U1Irrep ⊠ Z2Irrep`,
+and so on.
+
 Examples:
     graded_space(:U1, 0=>2, 1=>1, -1=>1)
     graded_space(:Z2, 0=>3, 1=>3)
@@ -47,6 +51,10 @@ end
 function graded_space(::Val{:Trivial}, pairs::Pair{Int,Int}...)
     length(pairs) == 1 || throw(ArgumentError(
         "graded_space(:Trivial, …) takes exactly one charge=>dim pair"))
+    # The charge label is intentionally discarded: ComplexSpace has no sector
+    # grading. `graded_space(:Trivial, 0=>3)` and `graded_space(:Trivial, 5=>3)`
+    # are identical — the API takes a charge for symmetry with the other
+    # variants, but the value plays no role for the trivial sector.
     _, d = first(pairs)
     return ComplexSpace(Int(d))
 end
@@ -126,6 +134,8 @@ function spin_half_ops(::Val{:U1})
 end
 
 function spin_half_ops(::Val{:Trivial})
+    # Spin-1/2 generators in the conventional normalisation S^a = σ^a / 2,
+    # so [S^x, S^y] = i S^z and S^a · S^a = 3/4 · I.
     Sx = ComplexF64[0 0.5; 0.5 0]
     Sy = ComplexF64[0 -0.5im; 0.5im 0]
     Sz = ComplexF64[0.5 0; 0 -0.5]
