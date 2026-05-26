@@ -4,7 +4,8 @@ using iTEBD
 # Explicit imports from TensorKit to avoid name conflicts with ITensors
 # (both are test dependencies and share some exported names like `dim`, `space`).
 using TensorKit: U1Irrep, Z2Irrep, ZNIrrep, Vect, dim, block, space, id,
-                 ComplexSpace, sectortype, domain, codomain
+                 ComplexSpace, sectortype, domain, codomain,
+                 DiagonalTensorMap, ←, ⊗
 
 @testset "graded_space" begin
     P = graded_space(:U1, 0=>2, 1=>1, -1=>1)
