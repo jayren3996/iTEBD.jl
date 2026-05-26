@@ -179,6 +179,20 @@ end
     @test ent_S(ψ, 2) ≈ 0.0 atol=1e-12
 end
 
+@testset "ENT_S_INDEX_WRAPS_PERIODICALLY" begin
+    # ent_S(ψ, i) should treat i modulo ψ.n, so accessing bond 0, -1, or n+1
+    # returns the entropy of the corresponding wrapped bond.
+    using Random
+    Random.seed!(2026_05_25)
+    ψ = rand_iMPS(ComplexF64, 4, 2, 4)
+    canonical!(ψ)
+
+    @test ent_S(ψ, 0)       ≈ ent_S(ψ, ψ.n)       atol=1e-12
+    @test ent_S(ψ, ψ.n + 1) ≈ ent_S(ψ, 1)         atol=1e-12
+    @test ent_S(ψ, ψ.n + 2) ≈ ent_S(ψ, 2)         atol=1e-12
+    @test ent_S(ψ, -1)      ≈ ent_S(ψ, ψ.n - 1)   atol=1e-12
+end
+
 @testset "ENT_S_MAXIMALLY_ENTANGLED_PAIR_IS_LOG2" begin
     # A 1-site unit cell representing the (|00⟩ + |11⟩)/√2 repeating pattern
     # has uniform Schmidt λ = [1/√2, 1/√2] on every bond, so the bipartite
@@ -189,6 +203,30 @@ end
     λ = [inv(sqrt(2)), inv(sqrt(2))]
     ψ = iMPS([B], [λ], 1)
     @test ent_S(ψ, 1) ≈ log(2) atol=1e-12
+end
+
+@testset "EXPECT_REJECTS_MISMATCHED_OPERATOR_DIMENSION" begin
+    # expect(ψ, O, i, j) requires size(O) == (d^len, d^len) for a contiguous
+    # block of length |j - i + 1| (with wraparound). A wrong-sized operator
+    # should fail cleanly rather than crash deep inside the contraction.
+    ψ = product_iMPS(ComplexF64, [[1, 0], [0, 1]])  # d=2, 2-site cell
+    Z = ComplexF64[1 0; 0 -1]
+    bad_3site = ComplexF64.(Matrix{Float64}(I, 8, 8))   # 2^3 = 8 but block is 2 sites
+    @test_throws Exception iTEBD.expect(ψ, bad_3site, 1, 2)
+    # A 1-site operator on a 2-site block also wrong-sized.
+    @test_throws Exception iTEBD.expect(ψ, Z, 1, 2)
+end
+
+@testset "INNER_PRODUCT_ORTHOGONAL_PRODUCT_STATES" begin
+    # Two distinct product states are orthogonal, so the per-cell overlap
+    # magnitude collapses to zero. Verifies the cross-transfer-matrix path
+    # on a case with known analytic value.
+    up   = ComplexF64[1, 0]
+    down = ComplexF64[0, 1]
+    ψ_up   = product_iMPS(ComplexF64, [up, up])
+    ψ_down = product_iMPS(ComplexF64, [down, down])
+    @test isapprox(iTEBD.inner_product(ψ_up, ψ_down), 0.0; atol=1e-12)
+    @test isapprox(iTEBD.inner_product(ψ_up,   ψ_up),   1.0; atol=1e-12)
 end
 
 @testset "ENERGY_SPAN_BRACKETS_HEISENBERG" begin

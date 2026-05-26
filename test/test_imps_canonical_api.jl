@@ -64,6 +64,25 @@ end
     @test Γ[2, 2, 2] ≈ 1.0 atol=1e-12
 end
 
+@testset "GETINDEX_WRAPS_PERIODICALLY" begin
+    # ψ[i] wraps i modulo ψ.n. Verify accessing bond 0, n+1, or a negative
+    # index returns the same Vidal tensor as the canonical wrapped index.
+    using Random
+    Random.seed!(2026_05_26)
+    ψ = rand_iMPS(ComplexF64, 3, 2, 4)
+    canonical!(ψ)
+
+    Γ1, λ1 = ψ[1]
+    Γ_wrap_up, λ_wrap_up = ψ[ψ.n + 1]
+    Γ_wrap_down, λ_wrap_down = ψ[0]
+    @test Γ_wrap_up   ≈ Γ1                            atol=1e-12
+    @test λ_wrap_up   == λ1
+    @test Γ_wrap_down ≈ ψ[ψ.n][1]                     atol=1e-12
+
+    # Negative indices also wrap.
+    @test ψ[-1][1] ≈ ψ[ψ.n - 1][1] atol=1e-12
+end
+
 @testset "CANONICAL_ACCEPTS_KRYLOV_KWARGS" begin
     # The tol/maxiter kwargs were previously not exposed on canonical!.
     # Verify they're accepted, plumb through to schmidt_canonical, and that

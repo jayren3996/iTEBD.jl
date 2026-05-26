@@ -61,6 +61,28 @@ end
     @test stats.num_saturated == 0
 end
 
+@testset "EVOLVE_RETURN_STATS_AGGREGATES_BOND_UPDATES" begin
+    # evolve! with return_stats=true should aggregate per-gate stats and
+    # report max_discarded_weight, mean_discarded_weight, and max_kept_dim
+    # consistent with the underlying gate updates. Previously these
+    # aggregate fields had no direct test.
+    P = pauli_matrices()
+    G = exp(-0.1im * kron(P.X, P.X))
+    ψ = product_iMPS(ComplexF64, [[1, 0], [0, 1]])
+
+    _, stats = evolve!(ψ, [(G, 1, 2), (G, 2, 1)], 3;
+        maxdim=4, truncerr=1e-12, return_stats=true)
+
+    @test stats.max_discarded_weight >= 0.0
+    @test stats.mean_discarded_weight >= 0.0
+    @test stats.max_discarded_weight >= stats.mean_discarded_weight
+    @test stats.max_kept_dim <= 4
+    @test stats.num_saturated >= 0
+    @test !isempty(stats.gate_updates)
+    # Per-gate stats should be the typed BondStat objects, not Any.
+    @test eltype(first(stats.gate_updates).bond_stats) === iTEBD.BondStat
+end
+
 @testset "APPLYGATE_NORMALIZES_PERIODIC_SITE_INDICES" begin
     P = pauli_matrices()
     n = 3

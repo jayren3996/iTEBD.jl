@@ -153,6 +153,45 @@ end
     @test length(unique(objectid(g) for (g, _, _) in gates_3)) <= 8
 end
 
+@testset "EVOLVE_SINGLE_SITE_CELL_UNDER_ADAPTIVE" begin
+    # The :adaptive chi-policy ratchets bond dim across bonds within a sweep,
+    # and across sweeps via the persisted ψ.λ. For n=1 cells there is exactly
+    # one bond (the wraparound), so the ratchet should still produce a
+    # monotonic bond-dim sequence over multiple evolve! calls.
+    Random.seed!(2026_05_26)
+    X = ComplexF64[0 1; 1 0]
+    Z = ComplexF64[1 0; 0 -1]
+    G = exp(-0.05im * (X + 0.3 * Z))
+
+    psi = rand_iMPS(ComplexF64, 1, 2, 1)
+    canonical!(psi)
+    bond_dims = Int[length(psi.λ[1])]
+    for _ in 1:5
+        evolve!(psi, [(G, 1, 1)], 3; chi_policy=:adaptive, maxdim=8)
+        push!(bond_dims, length(psi.λ[1]))
+    end
+    @test all(bond_dims[i] >= bond_dims[i-1] for i in 2:length(bond_dims))
+    @test all(bond_dims .<= 8)
+    @test isapprox(iTEBD.inner_product(psi), 1.0; atol=1e-8)
+end
+
+@testset "EVOLVE_FLOAT32_IMAGINARY_TIME_PRESERVES_ELTYPE" begin
+    # Most tests use ComplexF64. Verify the lower-precision path actually
+    # runs end-to-end without silent upcasting in evolve!, preserves the
+    # element type, and keeps the state normalized.
+    Random.seed!(2026_05_26)
+    H = ComplexF32[1 0 0 0; 0 -1 2 0; 0 2 -1 0; 0 0 0 1]  # tight-binding-like
+    G = exp(-0.05f0 * H)
+    @test eltype(G) === ComplexF32
+
+    psi = rand_iMPS(ComplexF32, 2, 2, 2)
+    canonical!(psi)
+    evolve!(psi, [(G, 1, 2), (G, 2, 1)], 5; maxdim=4)
+    @test eltype(psi.Γ[1]) === ComplexF32
+    @test eltype(psi.λ[1]) === Float32
+    @test isapprox(iTEBD.inner_product(psi), 1.0; atol=1f-4)
+end
+
 @testset "EVOLVE_WRAPAROUND_GATE_UNDER_ADAPTIVE_POLICY" begin
     # Wrap-around gates (j < i) used to leave the state non-canonical, and
     # the :adaptive policy ratchets the bond dim across bonds within an
