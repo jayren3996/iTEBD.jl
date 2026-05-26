@@ -71,6 +71,52 @@ graded_space(sym::Symbol, args...) = graded_space(Val(sym), args...)
 const SymmetricIMPS = iMPS{<:AbstractTensorMap, <:DiagonalTensorMap}
 export SymmetricIMPS
 
+"""
+    spin_half_ops(symmetry::Symbol)
+
+Return the spin-1/2 operators for the given symmetry backend.
+
+For `:U1`: returns `(Sz, Sp, Sm)` as TensorKit TensorMaps on the graded physical
+space `P = Vect[U1Irrep](1=>1, -1=>1)` (spin-up = U1(+1), spin-down = U1(-1)).
+`Sz` is an endomorphism of `P`; `Sp` lives on `P ← dual(P)` and `Sm = Sp'`.
+
+For `:Trivial`: returns `(Sx, Sy, Sz, Sp, Sm, Id)` as plain 2×2 `ComplexF64`
+matrices (no TensorKit grading). Useful for testing non-symmetric code paths.
+"""
+function spin_half_ops(::Val{:U1})
+    P = graded_space(:U1, 1=>1, -1=>1)
+    Pd = dual(P)
+
+    # Sz: endomorphism of P with diagonal block values ±1/2
+    Sz = zeros(ComplexF64, P ← P)
+    block(Sz, U1Irrep(1))[1, 1]  =  0.5
+    block(Sz, U1Irrep(-1))[1, 1] = -0.5
+
+    # Sp: P ← dual(P). In TensorKit's dual-space convention for U1,
+    # block(Sp, U1(+1)) is the 1×1 matrix that maps from dual(-1) [i.e. the
+    # spin-down input in the contragredient sense] to the spin-up output.
+    # This is the standard raising block.
+    Sp = zeros(ComplexF64, P ← Pd)
+    block(Sp, U1Irrep(1))[1, 1] = 1.0
+
+    # Sm: the adjoint of Sp; lives on dual(P) ← P
+    Sm = Sp'
+
+    return Sz, Sp, Sm
+end
+
+function spin_half_ops(::Val{:Trivial})
+    Sx = ComplexF64[0 0.5; 0.5 0]
+    Sy = ComplexF64[0 -0.5im; 0.5im 0]
+    Sz = ComplexF64[0.5 0; 0 -0.5]
+    Sp = Sx + im*Sy
+    Sm = Sx - im*Sy
+    Id = ComplexF64[1 0; 0 1]
+    return Sx, Sy, Sz, Sp, Sm, Id
+end
+
+spin_half_ops(sym::Symbol) = spin_half_ops(Val(sym))
+
 # This module is currently a skeleton. Method bodies are populated by
 # subsequent chunks of the implementation plan:
 #   Chunk 3 — graded_space, spin_half_ops, schmidt_values
