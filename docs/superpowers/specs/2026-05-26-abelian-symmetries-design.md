@@ -57,7 +57,7 @@ struct iMPS{ΓT, λT}
 end
 
 const DenseIMPS{T<:Number,S<:Real} = iMPS{Array{T,3}, Vector{S}}
-const SymmetricIMPS{T}             = iMPS{<:TensorMap, <:DiagonalTensorMap}
+const SymmetricIMPS                = iMPS{<:TensorMap, <:DiagonalTensorMap}
 ```
 
 Existing constructors and method signatures that today reference `iMPS{T,S}` are migrated to the new parameterisation; user-facing call sites that did not rely on the element-type parameters are unaffected.
@@ -116,7 +116,7 @@ Today, the constructor at `src/iMPS.jl:50-59` validates bond dimensions only. On
 
 ## Helper layer
 
-Five helpers live in a new optional file `src/Symmetric.jl`, loaded via a Julia package extension on `TensorKit` (Julia ≥ 1.9). Each is small and removes a concrete friction point for users who do not know TensorKit.
+Five helpers live in a Julia package extension `ext/iTEBDTensorKitExt.jl`, loaded automatically when the user does `using TensorKit` (Julia ≥ 1.9). Each is small and removes a concrete friction point for users who do not know TensorKit. The extension is declared in `Project.toml` under `[weakdeps]` / `[extensions]`; the base package gains no hard dependency on TensorKit.
 
 ```julia
 # 1) Symbol → graded-space, avoiding direct TensorKit imports
