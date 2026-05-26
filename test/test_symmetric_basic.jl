@@ -5,7 +5,7 @@ using iTEBD
 # (both are test dependencies and share some exported names like `dim`, `space`).
 using TensorKit: U1Irrep, Z2Irrep, ZNIrrep, Vect, dim, block, space, id,
                  ComplexSpace, sectortype, domain, codomain,
-                 DiagonalTensorMap, ←, ⊗
+                 AbstractTensorMap, DiagonalTensorMap, ←, ⊗
 
 @testset "graded_space" begin
     P = graded_space(:U1, 0=>2, 1=>1, -1=>1)
@@ -84,7 +84,8 @@ end
     P = graded_space(:U1, 1=>1, -1=>1)
     V = graded_space(:U1, 0=>2, 2=>1, -2=>1)
     ψ = rand_iMPS(P, V, 2)
-    @test ψ isa iTEBD.SymmetricIMPS
+    @test ψ.Γ[1] isa AbstractTensorMap
+    @test ψ.λ[1] isa DiagonalTensorMap
     @test ψ.n == 2
     @test length(ψ.Γ) == 2 && length(ψ.λ) == 2
     # Domain/codomain check: each Γ[i] should map V ⊗ P → V (rank-3 in MPS shape).
@@ -100,7 +101,8 @@ end
 
 @testset "rand_iMPS(:U1, charges, χ)" begin
     ψ = rand_iMPS(:U1, [-1, 1]; χ=8, n=2, flux=0)
-    @test ψ isa iTEBD.SymmetricIMPS
+    @test ψ.Γ[1] isa AbstractTensorMap
+    @test ψ.λ[1] isa DiagonalTensorMap
     @test ψ.n == 2
     # Total virtual dim should be ≤ χ (auto-distributor may round)
     @test dim(domain(ψ.Γ[1])[1]) ≤ 8
@@ -109,7 +111,8 @@ end
 
 @testset "product_iMPS symmetric Néel state" begin
     ψ = product_iMPS(:U1, [-1, 1], [1, -1])
-    @test ψ isa iTEBD.SymmetricIMPS
+    @test ψ.Γ[1] isa AbstractTensorMap
+    @test ψ.λ[1] isa DiagonalTensorMap
     @test ψ.n == 2
     # Each Γ[i] has bond dim 1 (product state) on both sides.
     for i in 1:2

@@ -71,12 +71,13 @@ end
 
 graded_space(sym::Symbol, args...) = graded_space(Val(sym), args...)
 
-# NOTE: `SymmetricIMPS` is declared in the base `iTEBD` module (SymmetricStubs.jl)
-# as `const SymmetricIMPS = iMPS` — the widest alias. The extension cannot
-# redefine a const from the parent module. Instead, dispatch that must be
-# restricted to TensorKit-backed tensors uses the concrete type parameters
-# `iMPS{<:AbstractTensorMap, <:DiagonalTensorMap}` directly in method signatures
-# within this extension.
+# `SymmetricIMPS` — the TensorKit-backed variant of `iMPS`. The narrow type
+# parameters constrain it to symmetric tensors only; dense `Array`-backed
+# states do NOT satisfy this alias. Available as
+# `Base.get_extension(iTEBD, :iTEBDTensorKitExt).SymmetricIMPS` from user code,
+# and unqualified as `SymmetricIMPS` inside the extension's own methods.
+const SymmetricIMPS = iMPS{<:AbstractTensorMap, <:DiagonalTensorMap}
+export SymmetricIMPS
 
 """
     spin_half_ops(symmetry::Symbol)
