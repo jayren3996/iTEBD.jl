@@ -19,6 +19,7 @@ const TEST_GROUPS = Dict(
         "test_performance_improvements.jl",
         "test_schmidt_fixes.jl",
         "test_imps_fixes.jl",
+        "test_symmetric_struct.jl",
     ],
     "api" => [
         "test_truncation_control.jl",
