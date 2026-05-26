@@ -7,12 +7,20 @@ export iMPS
 
 Infinite matrix-product state with a finite unit cell.
 
+Type parameters:
+- `ΓT`: storage type of each local tensor (e.g. `Array{ComplexF64, 3}` for the
+  dense backend; `TensorMap` for the symmetric backend supplied by an extension).
+- `λT`: storage type of each Schmidt spectrum (e.g. `Vector{Float64}` for the
+  dense backend; `DiagonalTensorMap` for the symmetric backend).
+
+For the dense default, see the type alias [`DenseIMPS`](@ref).
+
 Fields:
-- `Γ::Vector{Array{T,3}}`
+- `Γ::Vector{ΓT}`
   Stored local tensors for one periodic unit cell. In this package these are
   the right-canonical tensors `B_i = Γ_i λ_i`, not the bare Vidal tensors
   usually denoted `Γ_i` in the iTEBD literature.
-- `λ::Vector{Vector{Float64}}`
+- `λ::Vector{λT}`
   Schmidt spectra across the bonds of the unit cell. `λ[i]` is the Schmidt
   spectrum on the bond to the right of site `i`, with periodic wraparound.
 - `n::Int`
@@ -76,8 +84,17 @@ function _validate_iMPS_bonds(
     return nothing
 end
 
-# Fallback for any tensor type that has no specialised validator (e.g. TensorMap).
-# The symmetric extension supplies its own method.
+# Fallback: no validation. Two intended consumers:
+#   1. The TensorKit extension (`ext/iTEBDTensorKitExt.jl`, added in Chunk 4)
+#      specialises this on `Vector{<:AbstractTensorMap}` + `Vector{<:DiagonalTensorMap}`
+#      and performs sector-aware bond-space checks.
+#   2. Any non-dense, non-TensorKit user-supplied tensor type opts out of bond
+#      validation entirely. Such callers are responsible for their own invariants.
+#
+# Dense `Array{<:Number,3}` callers must match the specialised method above; if
+# they hit this fallback, the array type is structurally wrong (e.g. rank ≠ 3)
+# and downstream contraction code will fail at the first use — this is caller
+# error, surfaced loudly at the contraction site rather than silently here.
 _validate_iMPS_bonds(Γ, λ, n) = nothing
 
 """

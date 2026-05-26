@@ -6,7 +6,7 @@ const MAXDIM::Int = 50
 const SVDTOL::Float64 = 1e-12
 const SORTTOL::Float64 = 1e-3
 const ZEROTOL::Float64 = 1e-20
-export MAXDIM, SVDTOL, expect, ent_S
+export MAXDIM, SVDTOL, DenseIMPS, expect, ent_S
 #---------------------------------------------------------------------------------------------------
 # INCLUDE
 #---------------------------------------------------------------------------------------------------
