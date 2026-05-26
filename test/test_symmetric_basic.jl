@@ -23,3 +23,11 @@ end
     @test Pt isa ComplexSpace
     @test dim(Pt) == 3
 end
+
+@testset "graded_space products" begin
+    P = graded_space(:U1xU1, (0,0)=>2, (1,-1)=>1, (-1,1)=>1)
+    @test dim(P) == 4
+
+    Q = graded_space(:U1xZ2, (0,0)=>2, (1,1)=>1)
+    @test dim(Q) == 3
+end

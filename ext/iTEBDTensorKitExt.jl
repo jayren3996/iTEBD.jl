@@ -51,6 +51,16 @@ function graded_space(::Val{:Trivial}, pairs::Pair{Int,Int}...)
     return ComplexSpace(Int(d))
 end
 
+function graded_space(::Val{:U1xU1}, pairs::Pair{<:Tuple,Int}...)
+    Irrep = U1Irrep ⊠ U1Irrep
+    return Vect[Irrep](Irrep(c[1], c[2]) => Int(d) for (c, d) in pairs)
+end
+
+function graded_space(::Val{:U1xZ2}, pairs::Pair{<:Tuple,Int}...)
+    Irrep = U1Irrep ⊠ Z2Irrep
+    return Vect[Irrep](Irrep(c[1], c[2]) => Int(d) for (c, d) in pairs)
+end
+
 graded_space(sym::Symbol, args...) = graded_space(Val(sym), args...)
 
 # `SymmetricIMPS` — the TensorKit-backed variant of `iMPS`. The exact
