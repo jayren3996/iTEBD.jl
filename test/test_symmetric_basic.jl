@@ -1,6 +1,10 @@
 using Test
 using iTEBD
-using TensorKit
+
+# Explicit imports from TensorKit to avoid name conflicts with ITensors
+# (both are test dependencies and share some exported names like `dim`, `space`).
+using TensorKit: U1Irrep, Z2Irrep, ZNIrrep, Vect, dim, block, space, id,
+                 blocks, dual, ComplexSpace, sectortype, blocksectors, ←
 
 @testset "graded_space" begin
     P = graded_space(:U1, 0=>2, 1=>1, -1=>1)
@@ -48,7 +52,6 @@ end
 
         # Sp : P ← dual(P),  Sm = Sp' : dual(P) ← P
         # Sp*Sm : P ← P = projector onto spin-up sector
-        Pup = graded_space(:U1, 1=>1)
         proj_up = zeros(ComplexF64, P ← P)
         block(proj_up, U1Irrep(1))[1, 1] = 1.0
         @test isapprox(Sp * Sm, proj_up; atol=1e-12)
