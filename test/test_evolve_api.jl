@@ -255,6 +255,50 @@ end
     end
 end
 
+@testset "TROTTER_ORDER_FROM_DT_SCALING" begin
+    # Verify per-macro-step error scaling matches each scheme's documented
+    # order: for a p-th order Trotter, error ~ O(dt^(p+1)) per macro-step,
+    # so halving dt should reduce error by 2^(p+1).
+    #   :second     → p=2 → ratio ~8
+    #   :fourth     → p=4 → ratio ~32
+    #   :fourth_opt → p=4 → ratio ~32
+    # We measure opnorm(U_trotter(dt) - exp(-i·dt·H_full)) at a sequence of
+    # halving dt, against a Hamiltonian with non-commuting layers so the
+    # error is non-zero and the order is genuinely exercised.
+    X = ComplexF64[0 1; 1 0]
+    Z = ComplexF64[1 0; 0 -1]
+    layers = [[(X, 1, 1)], [(Z, 1, 1)]]
+    H_full = X + Z
+
+    function step_error(scheme, dt)
+        U_trotter = gate_product(trotter_gates(layers, dt; trotter=scheme))
+        U_exact   = exp(-1im * dt * H_full)
+        return opnorm(U_trotter - U_exact)
+    end
+
+    # Halve dt 3 times.
+    dts = [0.4, 0.2, 0.1, 0.05]
+
+    for (scheme, expected_ratio) in (
+        (:second,     8.0),
+        (:fourth,     32.0),
+        (:fourth_opt, 32.0),
+    )
+        errs = [step_error(scheme, dt) for dt in dts]
+        # Sanity: errors should be strictly decreasing as dt shrinks (above
+        # floating-point noise).
+        @test all(errs[i] < errs[i-1] for i in 2:length(errs))
+        @test all(e > 1e-14 for e in errs)
+
+        # Consecutive halving ratios. Allow (expected/2, expected*2) to
+        # absorb finite-dt corrections from higher-order commutators.
+        for i in 2:length(errs)
+            ratio = errs[i-1] / errs[i]
+            @test expected_ratio / 2 < ratio < expected_ratio * 2
+        end
+    end
+end
+
 @testset "TROTTER_IMAGINARY_PROMOTES_ALL_LAYER_ELEMENT_TYPES" begin
     X = Float64[0 1; 1 0]
     Y = ComplexF64[0 -im; im 0]
