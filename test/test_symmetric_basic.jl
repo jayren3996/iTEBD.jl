@@ -96,3 +96,40 @@ end
     # because all Γ are constructed from the same V).
     @test domain(ψ.Γ[end])[1] == codomain(ψ.Γ[1])[1]
 end
+
+@testset "rand_iMPS(:U1, charges, χ)" begin
+    ψ = rand_iMPS(:U1, [-1, 1]; χ=8, n=2, flux=0)
+    @test ψ isa iTEBD.SymmetricIMPS
+    @test ψ.n == 2
+    # Total virtual dim should be ≤ χ (auto-distributor may round)
+    @test dim(domain(ψ.Γ[1])[1]) ≤ 8
+    @test dim(domain(ψ.Γ[1])[1]) ≥ 1
+end
+
+@testset "product_iMPS symmetric Néel state" begin
+    ψ = product_iMPS(:U1, [-1, 1], [1, -1])
+    @test ψ isa iTEBD.SymmetricIMPS
+    @test ψ.n == 2
+    # Each Γ[i] has bond dim 1 (product state) on both sides.
+    for i in 1:2
+        @test dim(codomain(ψ.Γ[i])[1]) == 1
+        @test dim(domain(ψ.Γ[i])[1]) == 1
+    end
+end
+
+@testset "wraparound flux check rejects mismatched spaces" begin
+    P  = graded_space(:U1, 1=>1, -1=>1)
+    Va = graded_space(:U1, 0=>1)
+    Vb = graded_space(:U1, 2=>1)
+    # Build two tensors whose right→left bond spaces deliberately do not match
+    # around the wraparound: Γ[1] left=Va right=Vb; Γ[2] left=Va right=Va. The
+    # seam from Γ[2]'s right (Va) to Γ[1]'s left (Va) is fine, but Γ[1]'s right
+    # (Vb) doesn't match Γ[2]'s left (Va) — bond 1 fails.
+    Γ1 = zeros(ComplexF64, Va ⊗ P ← Vb)
+    Γ2 = zeros(ComplexF64, Va ⊗ P ← Va)
+    λ_dummy = [
+        DiagonalTensorMap(ones(Float64, 1), Vb),
+        DiagonalTensorMap(ones(Float64, 1), Va),
+    ]
+    @test_throws DimensionMismatch iMPS([Γ1, Γ2], λ_dummy, 2)
+end
