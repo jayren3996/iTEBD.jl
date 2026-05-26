@@ -31,40 +31,63 @@ Notes:
 - Many internal contractions operate directly on the stored tensors `B_i`
   rather than reconstructing bare Vidal tensors first.
 """
-struct iMPS{T<:Number, S<:Real}
-    Γ::Vector{Array{T, 3}}
-    λ::Vector{Vector{S}}
+struct iMPS{ΓT, λT}
+    Γ::Vector{ΓT}
+    λ::Vector{λT}
     n::Int
 
     function iMPS(
-        Γ::Vector{Array{T, 3}},
-        λ::Vector{Vector{S}},
+        Γ::Vector{ΓT},
+        λ::Vector{λT},
         n::Integer,
-    ) where {T<:Number, S<:Real}
+    ) where {ΓT, λT}
         n > 0 || throw(ArgumentError(
             "iMPS unit-cell length n must be positive (got $n)"))
         length(Γ) == n || throw(ArgumentError(
             "iMPS: length(Γ) = $(length(Γ)) but n = $n"))
         length(λ) == n || throw(ArgumentError(
             "iMPS: length(λ) = $(length(λ)) but n = $n"))
-        for i in 1:n
-            Dr_i = size(Γ[i], 3)
-            Dl_next = size(Γ[mod1(i + 1, n)], 1)
-            length(λ[i]) == Dr_i || throw(DimensionMismatch(
-                "iMPS bond $i: length(λ[$i]) = $(length(λ[i])) " *
-                "but size(Γ[$i], 3) = $Dr_i"))
-            Dr_i == Dl_next || throw(DimensionMismatch(
-                "iMPS bond $i: size(Γ[$i], 3) = $Dr_i but " *
-                "size(Γ[$(mod1(i + 1, n))], 1) = $Dl_next " *
-                "(bond dims must match at the wraparound seam)"))
-            all(isfinite, λ[i]) || throw(ArgumentError(
-                "iMPS λ[$i] contains non-finite values"))
-            any(<(zero(S)), λ[i]) && throw(ArgumentError(
-                "iMPS λ[$i] contains negative values"))
-        end
-        return new{T,S}(Γ, λ, Int(n))
+        _validate_iMPS_bonds(Γ, λ, n)
+        return new{ΓT, λT}(Γ, λ, Int(n))
     end
 end
+
+# Dense bond check — extracted from the previous inner constructor body.
+function _validate_iMPS_bonds(
+    Γ::Vector{<:AbstractArray{<:Number, 3}},
+    λ::Vector{<:AbstractVector{<:Real}},
+    n::Integer,
+)
+    for i in 1:n
+        Dr_i = size(Γ[i], 3)
+        Dl_next = size(Γ[mod1(i + 1, n)], 1)
+        length(λ[i]) == Dr_i || throw(DimensionMismatch(
+            "iMPS bond $i: length(λ[$i]) = $(length(λ[i])) " *
+            "but size(Γ[$i], 3) = $Dr_i"))
+        Dr_i == Dl_next || throw(DimensionMismatch(
+            "iMPS bond $i: size(Γ[$i], 3) = $Dr_i but " *
+            "size(Γ[$(mod1(i + 1, n))], 1) = $Dl_next " *
+            "(bond dims must match at the wraparound seam)"))
+        all(isfinite, λ[i]) || throw(ArgumentError(
+            "iMPS λ[$i] contains non-finite values"))
+        any(<(zero(eltype(λ[i]))), λ[i]) && throw(ArgumentError(
+            "iMPS λ[$i] contains negative values"))
+    end
+    return nothing
+end
+
+# Fallback for any tensor type that has no specialised validator (e.g. TensorMap).
+# The symmetric extension supplies its own method.
+_validate_iMPS_bonds(Γ, λ, n) = nothing
+
+"""
+    DenseIMPS{T,S}
+
+Alias for the dense-array backend of [`iMPS`](@ref). `T` is the tensor element
+type (typically `ComplexF64`); `S` is the Schmidt-value element type
+(typically `Float64`).
+"""
+const DenseIMPS{T<:Number,S<:Real} = iMPS{Array{T,3}, Vector{S}}
 #---------------------------------------------------------------------------------------------------
 """
     iMPS(T, Γs; renormalize=true)
@@ -368,7 +391,7 @@ end
 #---------------------------------------------------------------------------------------------------
 # BASIC PROPERTIES
 #---------------------------------------------------------------------------------------------------
-eltype(::iMPS{T}) where T = T
+eltype(::iMPS{ΓT}) where ΓT = eltype(ΓT)
 #---------------------------------------------------------------------------------------------------
 """
     ψ[i]
@@ -393,7 +416,7 @@ Notes:
   Schmidt values.
 - Use `ψ.Γ[i]` directly if you want the stored right-canonical tensor instead.
 """
-function getindex(mps::iMPS{T,S}, i::Integer) where {T,S}
+function getindex(mps::DenseIMPS{T,S}, i::Integer) where {T,S}
     i = mod(i-1, mps.n) + 1
     Γ = copy(mps.Γ[i])
     λ_internal = mps.λ[i]
