@@ -38,26 +38,38 @@ end
 
 @testset "spin_half_ops" begin
     @testset "U(1) symmetric" begin
-        Sz, Sp, Sm = spin_half_ops(:U1)
+        Sz, SzSz, SpSm, SmSp = spin_half_ops(:U1)
         P = graded_space(:U1, 1=>1, -1=>1)
 
-        # Sz is an endomorphism of P with the correct sector values
+        # Sz is a one-site endomorphism of P with the correct sector values
         @test sectortype(space(Sz, 1)) == U1Irrep
         @test space(Sz, 1) == P
         @test isapprox(block(Sz, U1Irrep(1))[1, 1], 0.5; atol=1e-12)
         @test isapprox(block(Sz, U1Irrep(-1))[1, 1], -0.5; atol=1e-12)
 
-        # Sz*Sz = 0.25 * id(P): valid endomorphism algebra check
+        # Sz is hermitian and squares to (1/4) I
+        @test isapprox(Sz, Sz'; atol=1e-12)
         @test isapprox(Sz * Sz, 0.25 * id(P); atol=1e-12)
 
-        # Sp : P ← dual(P),  Sm = Sp' : dual(P) ← P
-        # Sp*Sm : P ← P = projector onto spin-up sector
-        proj_up = zeros(ComplexF64, P ← P)
-        block(proj_up, U1Irrep(1))[1, 1] = 1.0
-        @test isapprox(Sp * Sm, proj_up; atol=1e-12)
+        # All three two-site operators live on the SAME HomSpace, so they add.
+        @test space(SzSz) == space(SpSm)
+        @test space(SpSm) == space(SmSp)
 
-        # Raising block: block(Sp, U1(1)) maps dual(-1) → (+1)
-        @test isapprox(block(Sp, U1Irrep(1))[1, 1], 1.0; atol=1e-12)
+        # SpSm and SmSp are mutual adjoints.
+        @test isapprox(SpSm', SmSp; atol=1e-12)
+
+        # The Heisenberg density assembles cleanly and matches the dense
+        # 4×4 reference in the {|↑↑⟩, |↑↓⟩, |↓↑⟩, |↓↓⟩} basis. This is the
+        # composition that the previous Chunk 3 implementation silently broke.
+        h = SzSz + 0.5 * (SpSm + SmSp)
+        @test isapprox(h, h'; atol=1e-12)
+
+        h_dense = ComplexF64[
+            0.25   0     0     0   ;
+            0    -0.25  0.5    0   ;
+            0     0.5  -0.25   0   ;
+            0     0     0     0.25 ]
+        @test isapprox(reshape(convert(Array, h), 4, 4), h_dense; atol=1e-12)
     end
 
     @testset "Trivial / dense fallback" begin

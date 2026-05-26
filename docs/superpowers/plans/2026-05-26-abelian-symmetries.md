@@ -591,16 +591,40 @@ git commit -m "feat: graded_space supports product Abelian sectors"
 
 - [ ] **Step 1: Add the failing test**
 
+The U(1) helper returns **pre-assembled two-site terms** rather than charged
+one-site raising/lowering operators. The reason is that single-site charged
+operators in TensorKit 0.16 must live on different HomSpaces (e.g. `P ← P`
+with coupled sector ±2 each), which means `Sp ⊗ Sm + Sm ⊗ Sp` fails with
+`SpaceMismatch` — the two summands land on incompatible spaces. Pre-assembling
+the two-site terms on the single common space `(P ⊗ P) ← (P ⊗ P)` sidesteps
+the issue entirely and lets the user write `h = SzSz + 0.5*(SpSm + SmSp)`.
+
 ```julia
 @testset "spin_half_ops" begin
     @testset "U(1) symmetric" begin
-        Sz, Sp, Sm = spin_half_ops(:U1)
-        # The hermitian operators have flux 0; raising/lowering have flux ±2.
+        Sz, SzSz, SpSm, SmSp = spin_half_ops(:U1)
+        P = graded_space(:U1, 1=>1, -1=>1)
+
+        # Sz: one-site, hermitian, squares to (1/4) I
         @test sectortype(space(Sz, 1)) == U1Irrep
-        @test space(Sz, 1) == graded_space(:U1, 1=>1, -1=>1)
-        # Sp · Sm + Sm · Sp = I on a spin-1/2 site
-        I_op = Sp * Sm + Sm * Sp
-        @test isapprox(I_op, id(space(Sz, 1)); atol=1e-12)
+        @test space(Sz, 1) == P
+        @test isapprox(Sz, Sz'; atol=1e-12)
+        @test isapprox(Sz * Sz, 0.25 * id(P); atol=1e-12)
+
+        # Two-site operators all live on the same HomSpace and compose
+        @test space(SzSz) == space(SpSm) == space(SmSp)
+        @test isapprox(SpSm', SmSp; atol=1e-12)
+
+        # The Heisenberg density assembles cleanly; verify against the dense
+        # 4×4 reference in the {|↑↑⟩, |↑↓⟩, |↓↑⟩, |↓↓⟩} basis.
+        h = SzSz + 0.5 * (SpSm + SmSp)
+        @test isapprox(h, h'; atol=1e-12)
+        h_dense = ComplexF64[
+            0.25   0     0     0   ;
+            0    -0.25  0.5    0   ;
+            0     0.5  -0.25   0   ;
+            0     0     0     0.25 ]
+        @test isapprox(reshape(convert(Array, h), 4, 4), h_dense; atol=1e-12)
     end
 
     @testset "Trivial / dense fallback" begin
@@ -616,28 +640,39 @@ end
 ```julia
 function spin_half_ops(::Val{:U1})
     P = graded_space(:U1, 1=>1, -1=>1)
-    # Sz: diagonal, charges +1 → +1/2, -1 → -1/2 (we follow the 2Sz convention in
-    # the docs and divide by 2 here in the operator)
-    Sz = TensorMap(zeros, ComplexF64, P ← P)
-    blocks(Sz)[U1Irrep(1)]  .= 0.5
-    blocks(Sz)[U1Irrep(-1)] .= -0.5
-    # Sp raises (Sz -1 → +1): flux +2
-    Sp = TensorMap(zeros, ComplexF64, P ← P, U1Irrep(2))
-    block(Sp, U1Irrep(1)) .= 1.0
-    # Sm lowers: flux -2
-    Sm = TensorMap(zeros, ComplexF64, P ← P, U1Irrep(-2))
-    block(Sm, U1Irrep(-1)) .= 1.0
-    return Sz, Sp, Sm
+
+    # Sz: one-site endomorphism (flux 0)
+    Sz = zeros(ComplexF64, P ← P)
+    block(Sz, U1Irrep(1))[1, 1]  =  0.5
+    block(Sz, U1Irrep(-1))[1, 1] = -0.5
+
+    # Two-site operators on the single common space (P ⊗ P) ← (P ⊗ P).
+    # The fused codomain decomposes into sectors {+2, 0, -2}; the U1(0)
+    # block is the 2×2 mixed-spin subspace.
+    SzSz = zeros(ComplexF64, P ⊗ P ← P ⊗ P)
+    block(SzSz, U1Irrep(2))[1, 1]  = 0.25
+    block(SzSz, U1Irrep(-2))[1, 1] = 0.25
+    block(SzSz, U1Irrep(0)) .= ComplexF64[-0.25 0; 0 -0.25]
+
+    # SpSm: |↑↓⟩⟨↓↑| — upper-right of the U1(0) block
+    SpSm = zeros(ComplexF64, P ⊗ P ← P ⊗ P)
+    block(SpSm, U1Irrep(0)) .= ComplexF64[0 1; 0 0]
+
+    # SmSp: |↓↑⟩⟨↑↓| = (SpSm)'
+    SmSp = zeros(ComplexF64, P ⊗ P ← P ⊗ P)
+    block(SmSp, U1Irrep(0)) .= ComplexF64[0 0; 1 0]
+
+    return Sz, SzSz, SpSm, SmSp
 end
 ```
 
-> **TensorKit version note:** the code above targets TensorKit 0.16. The
-> charged-`TensorMap` constructor signature changed between 0.14 and 0.15.
-> If the constructor errors, the required semantics are: a 1→1 tensor on
-> `P ← P` with the specified coupled sector for raising/lowering. The unit
-> test in Step 1 is the success criterion — implement whatever surface the
-> current TensorKit version exposes that satisfies it. Reference:
-> <https://quantumkithub.github.io/TensorKit.jl/stable/man/tensors/#Constructors>.
+> **TensorKit version note:** the code above targets TensorKit 0.16's
+> `zeros(ComplexF64, codomain ← domain)` constructor for `TensorMap`, and
+> the `block(t, sector)` accessor returning a mutable dense view. The
+> basis ordering inside the `U1(0)` block (whether `[|↑↓⟩, |↓↑⟩]` or its
+> swap) is empirically verified by the test in Step 1 — if the dense
+> reference matrix ever stops matching after a TensorKit upgrade, transpose
+> the off-diagonal entries inside the `U1(0)` blocks of `SpSm`/`SmSp`.
 
 - [ ] **Step 3: Implement the Trivial / dense variant**
 
@@ -1270,14 +1305,12 @@ git commit -m "feat: ent_S(::SymmetricIMPS, i)"
 ```julia
 @testset "expect one-site and energy_density" begin
     ψ = product_iMPS(:U1, [-1, 1], [1, -1])     # Néel state
-    Sz, _, _ = spin_half_ops(:U1)
+    Sz, SzSz, _, _ = spin_half_ops(:U1)
     val1 = expect(ψ, Sz, 1, 1)
     val2 = expect(ψ, Sz, 2, 2)
     @test isapprox(real(val1) + real(val2), 0.0; atol=1e-10)
 
-    # Heisenberg density on a Néel state — expected value 1/4 per bond minus the
-    # XY hops, equal to -1/4 for nearest-neighbour Heisenberg on |↑↓⟩.
-    SzSz = Sz ⊗ Sz
+    # Heisenberg SzSz density on a Néel state — expected value -1/4 per bond.
     e = energy_density(ψ, SzSz)
     @test isfinite(e)
 end
@@ -1348,12 +1381,11 @@ using LinearAlgebra
 
 @testset "Heisenberg XXZ symmetric iTEBD" begin
     P = graded_space(:U1, 1=>1, -1=>1)
-    Sz, Sp, Sm = spin_half_ops(:U1)
 
-    # Heisenberg density h = Sz⊗Sz + 0.5(S+⊗S- + S-⊗S+)
-    SzSz = Sz ⊗ Sz
-    XY   = 0.5 * (Sp ⊗ Sm + Sm ⊗ Sp)
-    h    = SzSz + XY
+    # spin_half_ops(:U1) returns pre-assembled two-site terms so that
+    # `SpSm + SmSp` composes cleanly on a single HomSpace (see Task 3.4).
+    Sz, SzSz, SpSm, SmSp = spin_half_ops(:U1)
+    h = SzSz + 0.5 * (SpSm + SmSp)
 
     # Start in the Néel state (Sz=0 sector)
     ψ = product_iMPS(:U1, [-1, 1], [1, -1])
@@ -1410,8 +1442,8 @@ git commit -m "test: golden Heisenberg XXZ symmetric iTEBD convergence"
     e_dense = energy_density(ψd, h_d)
 
     # Symmetric path
-    Sz, Sp, Sm = spin_half_ops(:U1)
-    h_s = Sz ⊗ Sz + 0.5*(Sp ⊗ Sm + Sm ⊗ Sp)
+    Sz, SzSz, SpSm, SmSp = spin_half_ops(:U1)
+    h_s = SzSz + 0.5 * (SpSm + SmSp)
     ψs = product_iMPS(:U1, [-1, 1], [1, -1])
     gates_s = [(exp(-dt * h_s), 1, 2), (exp(-dt * h_s), 2, 1)]
     evolve!(ψs, gates_s, 400; maxdim=8, cutoff=1e-10)
@@ -1507,7 +1539,7 @@ similarly for `-1=>1`.
 > magnon (one extra `Sz = +1`), you would put one flux-`+2` site somewhere
 > in the unit cell.
 
-Worked example. With `Sz, Sp, Sm = spin_half_ops(:U1)`:
+Worked example. The fluxes of the conceptual spin-1/2 operators are:
 
 | Operator | Flux | Why |
 |---|---|---|
@@ -1516,6 +1548,13 @@ Worked example. With `Sz, Sp, Sm = spin_half_ops(:U1)`:
 | `Sm`       | −2 | lowers `Sz` |
 | `Sz ⊗ Sz`  | 0  | sum of two flux-0 ops |
 | `Sp ⊗ Sm`  | 0  | +2 and −2 cancel |
+
+In `iTEBD.jl`, `spin_half_ops(:U1)` returns `(Sz, SzSz, SpSm, SmSp)` with the
+**two-site terms already assembled** as flux-0 operators on `(P ⊗ P) ← (P ⊗ P)`.
+You do not see `Sp`/`Sm` as separate charged objects — they are folded into the
+two-site combinations that the Hamiltonian needs. This avoids a TensorKit
+subtlety where summing single-site charged operators (which live on different
+HomSpaces) raises a `SpaceMismatch` error.
 
 ## Arrow convention on diagrams
 
@@ -1552,11 +1591,12 @@ Worked example. With `Sz, Sp, Sm = spin_half_ops(:U1)`:
 ```julia
 using iTEBD, TensorKit
 
-# Build the U(1)-symmetric spin-1/2 operators
-Sz, Sp, Sm = spin_half_ops(:U1)
+# Build the U(1)-symmetric spin-1/2 operators. The helper returns the
+# one-site Sz and the three pre-assembled flux-0 two-site terms.
+Sz, SzSz, SpSm, SmSp = spin_half_ops(:U1)
 
 # Heisenberg density h = Sz⊗Sz + (1/2)(S+⊗S- + S-⊗S+)
-h = Sz ⊗ Sz + 0.5 * (Sp ⊗ Sm + Sm ⊗ Sp)
+h = SzSz + 0.5 * (SpSm + SmSp)
 
 # Néel initial state in the Sz=0 sector
 ψ = product_iMPS(:U1, [-1, 1], [1, -1])

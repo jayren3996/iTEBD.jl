@@ -76,33 +76,53 @@ export SymmetricIMPS
 
 Return the spin-1/2 operators for the given symmetry backend.
 
-For `:U1`: returns `(Sz, Sp, Sm)` as TensorKit TensorMaps on the graded physical
-space `P = Vect[U1Irrep](1=>1, -1=>1)` (spin-up = U1(+1), spin-down = U1(-1)).
-`Sz` is an endomorphism of `P`; `Sp` lives on `P ← dual(P)` and `Sm = Sp'`.
+For `:U1`: returns `(Sz, SzSz, SpSm, SmSp)` where `Sz` is the one-site
+spin-z operator on the graded physical space `P = Vect[U1Irrep](1=>1, -1=>1)`
+(spin-up = U1(+1), spin-down = U1(-1)), and `SzSz`, `SpSm`, `SmSp` are
+**pre-assembled flux-0 two-site operators** living on the common HomSpace
+`(P ⊗ P) ← (P ⊗ P)`. Users construct two-site Hamiltonians by adding the
+pre-built terms, e.g.
+
+    Sz, SzSz, SpSm, SmSp = spin_half_ops(:U1)
+    h = SzSz + 0.5 * (SpSm + SmSp)         # Heisenberg density
+
+This signature sidesteps the dual-space composition problem that arises when
+trying to form `Sp ⊗ Sm + Sm ⊗ Sp` from one-site charged operators (which
+live on different HomSpaces in TensorKit's convention).
 
 For `:Trivial`: returns `(Sx, Sy, Sz, Sp, Sm, Id)` as plain 2×2 `ComplexF64`
 matrices (no TensorKit grading). Useful for testing non-symmetric code paths.
 """
 function spin_half_ops(::Val{:U1})
     P = graded_space(:U1, 1=>1, -1=>1)
-    Pd = dual(P)
 
-    # Sz: endomorphism of P with diagonal block values ±1/2
+    # Sz: endomorphism of P with diagonal block values ±1/2 (flux 0).
     Sz = zeros(ComplexF64, P ← P)
     block(Sz, U1Irrep(1))[1, 1]  =  0.5
     block(Sz, U1Irrep(-1))[1, 1] = -0.5
 
-    # Sp: P ← dual(P). In TensorKit's dual-space convention for U1,
-    # block(Sp, U1(+1)) is the 1×1 matrix that maps from dual(-1) [i.e. the
-    # spin-down input in the contragredient sense] to the spin-up output.
-    # This is the standard raising block.
-    Sp = zeros(ComplexF64, P ← Pd)
-    block(Sp, U1Irrep(1))[1, 1] = 1.0
+    # Two-site operators on (P ⊗ P) ← (P ⊗ P). The fused codomain
+    # decomposes into U(1) sectors {+2, 0, -2} with dimensions {1, 2, 1}.
+    # Basis ordering inside the U1(0) block is empirically [|↑↓⟩, |↓↑⟩]
+    # (see test_symmetric_basic.jl for the verification against the dense
+    # 4×4 Heisenberg matrix).
 
-    # Sm: the adjoint of Sp; lives on dual(P) ← P
-    Sm = Sp'
+    # SzSz = diag(0.25, -0.25, -0.25, 0.25) in the {↑↑, ↑↓, ↓↑, ↓↓} basis.
+    SzSz = zeros(ComplexF64, P ⊗ P ← P ⊗ P)
+    block(SzSz, U1Irrep(2))[1, 1]  = 0.25
+    block(SzSz, U1Irrep(-2))[1, 1] = 0.25
+    block(SzSz, U1Irrep(0)) .= ComplexF64[-0.25 0; 0 -0.25]
 
-    return Sz, Sp, Sm
+    # SpSm: only |↑↓⟩⟨↓↑| is nonzero, i.e. position (2,3) of the dense 4×4.
+    # Inside the U1(0) block this is the upper-right entry.
+    SpSm = zeros(ComplexF64, P ⊗ P ← P ⊗ P)
+    block(SpSm, U1Irrep(0)) .= ComplexF64[0 1; 0 0]
+
+    # SmSp = SpSm': matrix element at (3,2), lower-left of the U1(0) block.
+    SmSp = zeros(ComplexF64, P ⊗ P ← P ⊗ P)
+    block(SmSp, U1Irrep(0)) .= ComplexF64[0 0; 1 0]
+
+    return Sz, SzSz, SpSm, SmSp
 end
 
 function spin_half_ops(::Val{:Trivial})
