@@ -864,4 +864,89 @@ function applygate!(ψ::iMPS{<:AbstractTensorMap, <:DiagonalTensorMap},
     return ψ
 end
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Chunk 7: Symmetric observables
+# ─────────────────────────────────────────────────────────────────────────────
+
+import iTEBD: ent_S, entanglement_entropy, expect, energy_density
+
+"""
+    ent_S(ψ::SymmetricIMPS, i::Integer)
+
+Bipartite entanglement entropy of `ψ` across bond `i`, computed from the
+Schmidt spectrum on that bond. Reuses the dense path's
+`entanglement_entropy` helper after extracting the spectrum via
+`schmidt_values`.
+"""
+function ent_S(ψ::iMPS{<:AbstractTensorMap, <:DiagonalTensorMap}, i::Integer)
+    vals = schmidt_values(ψ, i)
+    p = abs2.(vals)
+    p ./= sum(p)
+    return entanglement_entropy(p)
+end
+
+"""
+    expect(ψ::SymmetricIMPS, O::AbstractTensorMap, i::Integer, j::Integer)
+
+One-site expectation value `<ψ| O_i |ψ>` for a one-site operator `O` (a
+`(P,) ← (P,)` TensorMap). Only `i == j` is supported in v1.
+
+The state must be in Schmidt canonical form. For a right-canonical state with
+left Schmidt values `λ_L = ψ.λ[mod1(i-1, n)]` already-absorbed on the right
+into `ψ.Γ[i]`, the formula is
+
+    ⟨O_i⟩ = Σ_{aa'sb} conj(Γ_i[a, s, b]) · λ_L[a; a'] · Γ_i[a', t, b] · O[s; t]
+
+Returns a scalar; take `real` for hermitian operators.
+"""
+function expect(ψ::iMPS{<:AbstractTensorMap, <:DiagonalTensorMap},
+                O::AbstractTensorMap, i::Integer, j::Integer)
+    i == j || throw(ArgumentError(
+        "v1 symmetric expect supports one-site operators only (got i=$i, j=$j); " *
+        "for two-site terms use `energy_density(ψ, h)`."))
+    1 ≤ i ≤ ψ.n || throw(BoundsError(ψ.Γ, i))
+
+    Γ  = ψ.Γ[i]
+    λL = ψ.λ[mod1(i - 1, ψ.n)]
+    # Contraction:
+    #   val = sum_{aa'tb} conj(Γ[a,s,b]) * λL[a; a'] * Γ[a',t,b] * O[s; t]
+    @tensor val = conj(Γ[a, s, b]) * λL[a; a′] * Γ[a′, t, b] * O[s; t]
+    return val
+end
+
+"""
+    energy_density(ψ::SymmetricIMPS, h::AbstractTensorMap)
+
+Average per-bond energy density of the two-site Hamiltonian density `h`,
+a `(P ⊗ P) ← (P ⊗ P)` TensorMap. The density is evaluated on each of the
+`ψ.n` bonds in the unit cell (with periodic wraparound) and the result is
+returned as the average real part.
+
+The state must be in Schmidt canonical form.
+"""
+function energy_density(ψ::iMPS{<:AbstractTensorMap, <:DiagonalTensorMap},
+                        h::AbstractTensorMap)
+    n = ψ.n
+    total = zero(ComplexF64)
+    for i in 1:n
+        j  = mod1(i + 1, n)
+        Γi = ψ.Γ[i]
+        Γj = ψ.Γ[j]
+        λL = ψ.λ[mod1(i - 1, n)]
+        # Two-site expectation:
+        #   val = sum_{...} conj(Γi[a,s,c]) * conj(Γj[c,t,b]) * λL[a;a′] *
+        #                   Γi[a′,u,c′] * Γj[c′,v,b] * h[s,t;u,v]
+        @tensor val =
+            conj(Γi[a, s, c]) *
+            conj(Γj[c, t, b]) *
+            λL[a; a′] *
+            Γi[a′, u, c′] *
+            Γj[c′, v, b] *
+            h[s, t; u, v]
+        total += val
+    end
+    return real(total / n)
+end
+
 end # module

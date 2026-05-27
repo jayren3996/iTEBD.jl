@@ -298,3 +298,42 @@ end
     @test ψ.Γ[1] isa AbstractTensorMap
     @test ψ.λ[1] isa DiagonalTensorMap
 end
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Chunk 7: Symmetric observables
+# ─────────────────────────────────────────────────────────────────────────────
+
+@testset "ent_S on symmetric iMPS" begin
+    using Random
+    Random.seed!(2)
+    P = graded_space(:U1, 1=>1, -1=>1)
+    V = graded_space(:U1, 0=>2, 2=>1, -2=>1)
+    ψ = rand_iMPS(P, V, 2)
+    canonical!(ψ)
+    S = ent_S(ψ, 1)
+    @test S ≥ 0
+    @test isfinite(S)
+end
+
+@testset "one-site expect and energy_density" begin
+    # Néel state in Sz=0 sector
+    ψ = product_iMPS(:U1, [-1, 1], [1, -1])
+    Sz, SzSz, SpSm, SmSp = spin_half_ops(:U1)
+
+    # Site-resolved magnetisations: site 1 has Sz=+1 (occupation +1 in 2*Sz units → +0.5 in Sz)
+    val1 = expect(ψ, Sz, 1, 1)
+    val2 = expect(ψ, Sz, 2, 2)
+    @test isapprox(real(val1),  0.5; atol=1e-10)
+    @test isapprox(real(val2), -0.5; atol=1e-10)
+    @test isapprox(imag(val1),  0.0; atol=1e-10)
+
+    # Total Sz over unit cell averages to 0 (Sz=0 sector)
+    @test isapprox(real(val1) + real(val2), 0.0; atol=1e-10)
+
+    # Heisenberg density on Néel: <SzSz> = -0.25 (the Sz⊗Sz piece on antialigned spins);
+    # the off-diagonal SpSm, SmSp pieces evaluate to 0 on a product state.
+    h = SzSz + 0.5 * (SpSm + SmSp)
+    e = energy_density(ψ, h)
+    @test isapprox(real(e), -0.25; atol=1e-10)
+    @test isapprox(imag(e),  0.0;  atol=1e-10)
+end
