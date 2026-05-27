@@ -220,8 +220,9 @@ Build a random symmetric iMPS with `symmetry` (one of the supported
 dimension `χ` auto-distributed across compatible sectors, unit cell `n`, and
 target total `flux` around the unit cell.
 
-Only simple symmetries (`:U1`, `:Z2`, `:ZN`, `:Trivial`) are supported in v1.
-For product symmetries use the raw `rand_iMPS(pspace, vspace, n)` form.
+Only `:U1`, `:Z2`, and `:Trivial` are supported in v1 (since `:ZN` requires
+an explicit `N` that this symbol-based API has no slot for). Use the raw
+`rand_iMPS(pspace, vspace, n)` form for `:ZN` or product symmetries.
 
 Examples:
     rand_iMPS(:U1, [-1, 1]; χ=8, n=2)              # spin-1/2 XXZ-style
@@ -232,9 +233,9 @@ loading the symmetric backend's canonicalisation routine.
 """
 function rand_iMPS(sym::Symbol, charges::AbstractVector{<:Integer};
                    χ::Integer, n::Integer=1, flux::Integer=0)
-    sym in (:U1, :Z2, :ZN, :Trivial) || throw(ArgumentError(
-        "rand_iMPS(symbol-based) only supports simple symmetries in v1 " *
-        "(got :$sym). Use the raw `rand_iMPS(pspace, vspace, n)` form for products."))
+    sym in (:U1, :Z2, :Trivial) || throw(ArgumentError(
+        "rand_iMPS(symbol-based) only supports :U1, :Z2, :Trivial in v1 " *
+        "(got :$sym). Use the raw `rand_iMPS(pspace, vspace, n)` form for :ZN or products."))
     χ > 0 || throw(ArgumentError("χ must be positive (got $χ)"))
     flux == 0 || throw(ArgumentError(
         "rand_iMPS(symbol-based) currently only supports flux=0 in v1. " *
@@ -252,28 +253,33 @@ Build a bond-dimension-1 symmetric iMPS where site `i` occupies the physical
 basis state with charge `occupations[i]`. The cumulative-charge bond decoration
 makes every tensor flux-0 individually.
 
-Only simple symmetries (`:U1`, `:Z2`, `:ZN`) are supported in v1.
+Only `:U1` and `:Z2` are supported in v1 (since `:ZN` requires an explicit
+`N` that this symbol-based API has no slot for). Use the raw constructor for
+`:ZN` with `N ≥ 3`.
 
 Example: spin-1/2 Néel state in the Sz=0 sector:
     ψ = product_iMPS(:U1, [-1, 1], [1, -1])
 
-Note: `sum(occupations)` must equal zero (mod the symmetry order) so that the
-bond fluxes close around the periodic unit cell. A DimensionMismatch is thrown
-if they do not.
+Flux closure: U(1) requires `sum(occupations) == 0`; Z_2 requires
+`sum(occupations) ≡ 0 (mod 2)`. An `ArgumentError` is thrown otherwise.
 """
 function product_iMPS(sym::Symbol, charges::AbstractVector{<:Integer},
                       occupations::AbstractVector{<:Integer})
-    sym in (:U1, :Z2, :ZN) || throw(ArgumentError(
-        "product_iMPS(symbol-based) only supports :U1, :Z2, :ZN in v1 (got :$sym)"))
+    sym in (:U1, :Z2) || throw(ArgumentError(
+        "product_iMPS(symbol-based) only supports :U1 and :Z2 in v1 (got :$sym). " *
+        "For :ZN with N≥3, build the state via the raw `iMPS(pspace, vspaces, Γ, λ)` " *
+        "constructor with explicitly constructed graded spaces."))
     n = length(occupations)
     n > 0 || throw(ArgumentError("occupations must be non-empty"))
     all(c -> c in charges, occupations) || throw(ArgumentError(
         "every occupation must appear in `charges`"))
     sum_occ = sum(occupations)
-    sum_occ == 0 || throw(ArgumentError(
-        "product_iMPS: total flux of occupations is $(sum_occ), must be 0 around " *
-        "the unit cell. Pass occupations that sum to zero, or build the state " *
-        "directly via the raw constructor and accept the non-zero global flux."))
+    # U(1) requires the integer total to vanish; Z_2 only requires it modulo 2.
+    flux_ok = sym === :U1 ? sum_occ == 0 : mod(sum_occ, 2) == 0
+    flux_ok || throw(ArgumentError(
+        "product_iMPS: total flux of occupations is $(sum_occ), must close around " *
+        "the unit cell ($(sym === :U1 ? "= 0 for :U1" : "≡ 0 (mod 2) for :Z2")). " *
+        "Adjust occupations, or build the state directly via the raw constructor."))
     P = graded_space(sym, [c => 1 for c in charges]...)
 
     # The bond running into site i carries the cumulative charge of sites 1..i-1.

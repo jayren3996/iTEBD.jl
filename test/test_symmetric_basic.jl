@@ -137,6 +137,36 @@ end
     @test right_sectors_2 == [U1Irrep(0)]
 end
 
+@testset "product_iMPS :Z2 with modular flux closure" begin
+    # Two occupied sites on a Z_2 chain: sum = 2 ≡ 0 (mod 2), should succeed.
+    ψ = product_iMPS(:Z2, [0, 1], [1, 1])
+    @test ψ.n == 2
+    @test sectortype(codomain(ψ.Γ[1])[1]) == Z2Irrep
+    # Three odd-charge sites: sum = 3 ≡ 1 (mod 2), should fail.
+    @test_throws ArgumentError product_iMPS(:Z2, [0, 1], [1, 1, 1])
+end
+
+@testset "product_iMPS rejects :ZN symbol API" begin
+    # :ZN cannot pass N through the symbol-based product_iMPS signature; the
+    # error message must direct the user to the raw constructor.
+    err = try
+        product_iMPS(:Z3, [0, 1, 2], [0, 1, 2])
+    catch e
+        e
+    end
+    @test err isa ArgumentError
+    @test occursin("raw", err.msg) || occursin("ZN", err.msg)
+end
+
+@testset "rand_iMPS rejects :ZN symbol API" begin
+    err = try
+        rand_iMPS(:Z3, [0, 1, 2]; χ=4, n=2)
+    catch e
+        e
+    end
+    @test err isa ArgumentError
+end
+
 @testset "wraparound flux check rejects mismatched spaces" begin
     P  = graded_space(:U1, 1=>1, -1=>1)
     Va = graded_space(:U1, 0=>1)
