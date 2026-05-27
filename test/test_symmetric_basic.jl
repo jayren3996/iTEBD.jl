@@ -200,20 +200,12 @@ end
 
 @testset "canonical! on symmetric iMPS" begin
     using Random
-    # Notes on (P, V) compatibility for the n = 2 unit cell:
-    # - For P = (±1), a single-site charge transition is ±1. The wraparound
-    #   bond's charge change over 2 sites is 0 or ±2 (even).
-    # - We use V = (0, ±1, ±2), which contains both even and odd charges so
-    #   the per-site Γ has non-trivial blocks.
-    # - The transfer spectrum on this V partitions into disjoint sub-blocks
-    #   (even charges vs odd charges) for a random Γ. For SOME random seeds
-    #   these sub-blocks have well-separated dominant eigenvalues and the
-    #   "injective" canonicalisation succeeds; for others the leading
-    #   eigenvalues across sub-blocks are too close, hitting the
-    #   non-injective regime that this version of `canonical!` does not
-    #   handle. Pin the seed so the test runs in the injective regime; the
-    #   non-injective case is documented as a known limitation and is the
-    #   subject of follow-up work.
+    # Seed pinning is load-bearing here. The v1 symmetric canonical! works only
+    # for injective states. With this (P, V) choice, ~50% of random seeds land
+    # in a non-injective regime where the algorithm warns (via the asymmetric-
+    # transfer-eigenvalue check) and produces an unreliable result. Seed 2 is a
+    # known-good injective seed. A future chunk will add non-injective / multi-
+    # block canonical form to remove the seed dependence.
     Random.seed!(2)
     P = graded_space(:U1, 1=>1, -1=>1)
     V = graded_space(:U1, 0=>1, 1=>1, -1=>1, 2=>1, -2=>1)
@@ -235,16 +227,22 @@ end
             @test isapprox(blk, Matrix{ComplexF64}(I, size(blk)); atol=1e-7)
         end
     end
+    # Idempotence: canonicalising again should be a no-op up to numerics.
+    λ_before = schmidt_values(ψ, 1)
+    canonical!(ψ)
+    λ_after = schmidt_values(ψ, 1)
+    @test isapprox(λ_before, λ_after; atol=1e-10)
 end
 
 @testset "canonical! on symmetric iMPS, n=1" begin
     using Random
-    # For a single-site unit cell the per-step transfer shifts the bond
-    # charge by ±1, so V must contain consecutive integer charges. Mixed
-    # parity is fine for n = 1 because the transfer spectrum stays
-    # connected. We pin the seed so the test is deterministic; many seeds
-    # work but a few hit Krylov sign-degeneracies that this version of
-    # canonical! does not resolve cleanly.
+    # Seed pinning is load-bearing here. The v1 symmetric canonical! works only
+    # for injective states. For a single-site unit cell the transfer spectrum
+    # stays connected (consecutive integer charges), but a few seeds still hit
+    # Krylov sign-degeneracies that the asymmetric-transfer-eigenvalue check
+    # will warn about and that produce unreliable results. Seed 2 is a known-
+    # good injective seed. A future chunk will add non-injective / multi-block
+    # canonical form to remove the seed dependence.
     Random.seed!(2)
     P = graded_space(:U1, 1=>1, -1=>1)
     V = graded_space(:U1, 0=>2, 1=>2, -1=>2)

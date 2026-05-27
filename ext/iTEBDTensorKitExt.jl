@@ -364,12 +364,12 @@ end
 
 # Apply the unit-cell transfer map to a bond-space density matrix.
 #
-# `dir = :r` produces (T_n ∘ ... ∘ T_1)(ρ), the right-acting transfer where the
-# rightmost site contracts ρ first. `dir = :l` produces the adjoint chain.
+# `dir = :r` applies T_n first (innermost), then T_{n-1}, …, T_1 last
+# (outermost): (T_1 ∘ T_2 ∘ ... ∘ T_n)(ρ). The loop walks `i = n, n-1, …, 1`.
+# `dir = :l` reverses the order: i = 1, 2, …, n.
 #
 # The single-site right transfer is T_i(ρ)[a, b] = Σ_{s, c, d} Γ_i[a, s, c]
-# ρ[c, d] conj(Γ_i[b, s, d]). The full unit-cell map composes them in the order
-# T_1 ∘ T_2 ∘ ... ∘ T_n, so the iteration walks `i = n, n-1, …, 1` for `:r`.
+# ρ[c, d] conj(Γ_i[b, s, d]).
 function _apply_transfer_unit_cell(ψ::iMPS, ρ::AbstractTensorMap; dir::Symbol)
     n = ψ.n
     out = ρ
@@ -441,8 +441,12 @@ function _dominant_fixed_point(ψ::iMPS; dir::Symbol, tol::Real, maxiter::Intege
 
     ρ_dom = best_ρ
     trace = real(tr(ρ_dom))
-    if trace > 0
+    if trace > sqrt(eps(Float64))
         ρ_dom = ρ_dom / trace
+    else
+        @warn "canonical!: dominant fixed point has near-zero trace ($trace); " *
+              "the canonical form will be unreliable. This typically signals a " *
+              "non-injective input."
     end
     λ_max = abs(vals[best_idx])
     return λ_max, ρ_dom
@@ -524,9 +528,15 @@ Algorithm (injective setting):
      that each individual `B_i` satisfies the right-canonical condition
      `Σ_s B_i B_i' = I`.
 
-The algorithm assumes injectivity (a unique dominant transfer eigenvalue).
-This matches the dense `canonical!`'s assumption; non-injective / degenerate
-inputs may produce a meaningful but non-fully-canonical result.
+Assumptions: the unit cell is *injective* — the dominant eigenvalue of the
+transfer map is unique. For non-injective inputs (e.g. states with broken
+translation symmetry within the unit cell, or transfer maps with
+nearly-degenerate paired dominant eigenvalues), this routine may silently
+produce an arbitrary or empty Schmidt spectrum on one or more bonds. Always
+verify after canonicalisation by inspecting `schmidt_values(ψ, i)`. A future
+release will add non-injective / multi-block canonical form. For now, when
+the assumption is violated, a `@warn` is emitted from the asymmetric-
+eigenvalue check, and downstream evolution should not be trusted.
 
 Keyword arguments:
 - `maxdim::Integer = MAXDIM` — Hard rank cap on each bond.
@@ -549,6 +559,18 @@ function canonical!(ψ::iMPS{<:AbstractTensorMap, <:DiagonalTensorMap};
     # The dominant transfer eigenvalue should match in both directions for an
     # injective state (up to numerical noise). Take the average for a more
     # robust per-site scaling factor.
+
+    # Injective states have λ_r ≈ λ_l. A meaningful asymmetry signals non-injectivity
+    # (e.g. block-diagonal transfer with paired dominant eigenvalues, or a state
+    # with broken translation symmetry within the unit cell). Surface this rather
+    # than silently averaging and proceeding.
+    λ_scale = max(abs(λ_r), abs(λ_l), 1.0)
+    if abs(λ_r - λ_l) > sqrt(eps(Float64)) * λ_scale * 100
+        @warn "canonical!: asymmetric transfer eigenvalues (λ_r=$(λ_r), λ_l=$(λ_l)); " *
+              "the input may be non-injective. The injective canonicalisation path " *
+              "is unreliable here; consider seeding the random state differently or " *
+              "constructing a state in a fixed flux sector."
+    end
     λ_max = (real(λ_r) + real(λ_l)) / 2
 
     # Rescale each Γ by λ_max^(1/(2n)) so the new unit-cell transfer eigenvalue
@@ -657,17 +679,12 @@ function _split_unit_cell!(ψ::iMPS{<:AbstractTensorMap, <:DiagonalTensorMap},
     λi_inv = _diag_inverse(λi)
     Ti = T
     for site in 1:(n - 1)
-        # Repartition Ti: codomain (V_l, P_{site}), domain (P_{site+1..n}, V_r).
+        # At iteration `site`, Ti has codomain (V_l_current, P_site, P_{site+1}, …, P_n)
+        # of rank (n - site + 2) and domain (V_right) of rank 1.
+        # Permute Ti to isolate site `site`: keep (V_l_current, P_site) in the
+        # codomain and move (P_{site+1}, …, P_n, V_right) into the domain,
+        # then SVD to extract the right-canonical site tensor A_site.
         num_cod = numout(Ti)
-        num_dom = numin(Ti)
-        cod_inds = (1, 2)
-        dom_inds = (ntuple(k -> 2 + k, num_cod - 2)..., num_cod + 1)
-        # The above assumes Ti has codomain rank (1 + (n - site + 1)) = (n - site + 2)
-        # and domain rank 1. Wait — the codomain shrinks each iteration, so we
-        # have to recompute. The grouped Ti at iteration `site` has codomain
-        # (V_l_current, P_site, P_{site+1}, ..., P_n) of rank (n - site + 2)
-        # and domain V_right of rank 1.
-        # Split: codomain (V_l_current, P_site), domain (P_{site+1}, ..., P_n, V_right).
         cod_keep = (1, 2)
         dom_move = ntuple(k -> 2 + k, num_cod - 2)
         dom_inds = (dom_move..., num_cod + 1)
