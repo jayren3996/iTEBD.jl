@@ -31,12 +31,17 @@ end
     @test err isa ErrorException
     @test occursin("TensorKit", err.msg)
 
-    # `schmidt_values` on the dense backend returns a Vector{Float64} that
-    # aliases the underlying λ when types already match — verify the type
-    # and the per-element values, but don't depend on aliasing (it's an
-    # implementation detail of `convert`).
+    # `schmidt_values` on the dense backend returns a fresh `Vector{Float64}`.
+    # Verify the type, the values, and — critically — that mutating the result
+    # does not bleed back into `ψ.λ[i]`. Previously this was a thin
+    # `convert(Vector{Float64}, ψ.λ[i])` wrapper that aliased when the eltype
+    # already matched, so a caller running `sv = schmidt_values(ψ, 1); sv .= 0`
+    # would silently zero out the state's Schmidt spectrum.
     ψ = rand_iMPS(ComplexF64, 2, 2, 3)
     sv = schmidt_values(ψ, 1)
     @test sv isa Vector{Float64}
     @test sv == ψ.λ[1]
+    original = copy(ψ.λ[1])
+    sv .= 0.0
+    @test ψ.λ[1] == original
 end

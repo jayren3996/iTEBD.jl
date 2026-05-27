@@ -19,15 +19,17 @@ spin_half_ops(args...; kwargs...) = error(_NEEDS_TENSORKIT)
 """
     schmidt_values(ψ, i)
 
-Return the Schmidt spectrum on bond `i` as a `Vector{Float64}`, independent of
-whether `ψ` is dense or symmetric.
+Return the Schmidt spectrum on bond `i` as a freshly-allocated
+`Vector{Float64}`, independent of whether `ψ` is dense or symmetric.
 
-For dense `iMPS`, this is a thin wrapper around `ψ.λ[i]`. For the symmetric
-backend (loaded via `using TensorKit`), the extension's specialisation
-flattens the per-sector diagonal blocks of `ψ.λ[i]::DiagonalTensorMap` into a
-single descending-sorted `Vector{Float64}`.
+For dense `iMPS`, this is a copy of `ψ.λ[i]` with eltype `Float64`. For the
+symmetric backend (loaded via `using TensorKit`), the extension's
+specialisation flattens the per-sector diagonal blocks of
+`ψ.λ[i]::DiagonalTensorMap` into a single descending-sorted `Vector{Float64}`.
+
+The result is always a fresh array — mutating it does not affect the state.
 """
-schmidt_values(ψ::DenseIMPS, i::Integer) = convert(Vector{Float64}, ψ.λ[i])
+schmidt_values(ψ::DenseIMPS, i::Integer) = collect(Float64, ψ.λ[i])
 
 # Symbol-dispatch stubs for symmetric constructors. The non-symbol methods of
 # `rand_iMPS` / `product_iMPS` are defined in `iMPS.jl` and remain dense-only;
