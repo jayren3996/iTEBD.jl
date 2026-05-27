@@ -302,6 +302,26 @@ end
     end
 end
 
+@testset "canonical! on symmetric iMPS, n=3 product state" begin
+    # n=3 is the smallest unit cell that triggers the iterative `_split_unit_cell!`
+    # repartition (n=2 takes the terminal branch directly). A bond-dim-1 product
+    # state is deterministic — no Krylov, no random seed — and its right-canonical
+    # form is again bond-dim-1 with right isometries.
+    ψ = product_iMPS(:U1, [-1, 1, 0], [1, -1, 0])
+    canonical!(ψ)
+    @test ψ.n == 3
+    # Every site stays bond-dim 1 and remains a right-isometry: ⟨Γ|Γ⟩ = 1 per block.
+    for k in 1:3
+        Γ = ψ.Γ[k]
+        @test dim(codomain(Γ)[1]) == 1
+        @test dim(domain(Γ)[1]) == 1
+        @tensor R[a; b] := Γ[a, s, c] * conj(Γ[b, s, c])
+        for (_, blk) in blocks(R)
+            @test isapprox(blk, Matrix{ComplexF64}(I, size(blk)); atol=1e-9)
+        end
+    end
+end
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Chunk 6: Symmetric applygate! and evolve! routing
 # ─────────────────────────────────────────────────────────────────────────────

@@ -730,7 +730,18 @@ function _split_unit_cell!(ψ::iMPS{<:AbstractTensorMap, <:DiagonalTensorMap},
         # by the new Schmidt). This way the next iteration's "λi" is Λnew.
         if site < n - 1
             Ti_new = _absorb_diag_left_on_codomain(Vt_part, Λnew)
-            Ti = Ti_new
+            # After absorption Ti_new has codomain (new_bond) and domain
+            # (P_{site+1}, …, P_n, V_right) — i.e. 1 codomain leg and
+            # (n - site + 1) domain legs. The next iteration expects Ti to
+            # have codomain (V_l_current = new_bond, P_{site+1}, …, P_n) of
+            # rank (n - site + 1) and domain (V_right) of rank 1, so move
+            # the leading (n - site) physical legs from domain into codomain.
+            # (For n=2 this branch never runs; n=3 is the first case that
+            # actually needs the repartition.)
+            new_cod_rank = n - site + 1
+            cod_inds = ntuple(k -> k, new_cod_rank)
+            dom_inds = (new_cod_rank + 1,)
+            Ti = permute(Ti_new, (cod_inds, dom_inds))
             λi = Λnew
             λi_inv = _diag_inverse(λi; cutoff=cutoff)
         else
