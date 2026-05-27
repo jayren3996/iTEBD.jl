@@ -3,6 +3,7 @@ module iTEBDTensorKitExt
 using iTEBD
 using TensorKit
 using LinearAlgebra
+using KrylovKit: eigsolve
 
 # Names from the base package that this extension will specialise. Using
 # `import` (not `using`) so that adding methods to these names is unambiguous
@@ -10,6 +11,7 @@ using LinearAlgebra
 import iTEBD: graded_space, spin_half_ops, schmidt_values
 import iTEBD: rand_iMPS, product_iMPS
 import iTEBD: iMPS, _validate_iMPS_bonds
+import iTEBD: canonical!
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Chunk 3: Helper layer
@@ -328,31 +330,442 @@ end
 """
     _symmetric_tsvd(A; maxdim, cutoff)
 
-Truncated SVD of a four-leg symmetric block tensor `A` with codomain shape
+Truncated SVD of a four-leg symmetric block tensor `A` with the codomain shape
 `V_left ⊗ P_1 ⊗ P_2` and domain shape `V_right`. The split happens at the
-canonical "two-site" axis: the second physical leg and the right virtual leg
-move to the domain side, while `V_left` and the first physical leg stay in
-the codomain. Returns `(U, S, Vt, info)` where:
+canonical "two-site" axis — the second physical leg and the right virtual
+leg move to the domain side, while `V_left` and the first physical leg stay
+in the codomain. Returns `(U, S, Vt, info)` where:
 
-- `U` carries the left bond and the first physical leg (`(V_left, P_1) ← bond`).
+- `U` carries the left bond and the first physical leg (`codomain (V_left, P_1)`).
 - `S::DiagonalTensorMap` holds the truncated singular values on the new bond.
 - `Vt` carries the second physical leg and the right virtual leg.
 - `info` is TensorKit/MatrixAlgebraKit's truncation diagnostic (a real number
   reporting the discarded weight) — used by callers for sanity checks.
 
-In TensorKit 0.16 the truncated SVD is `svd_trunc!`; the truncation policy is
-expressed via `truncrank(maxdim) & trunctol(; atol=cutoff)`.
+This is the workhorse primitive used by `applygate!` to recanonicalise a
+two-site block after applying a gate. It is also exercised directly by the
+`canonical!` implementation when grouping the unit cell.
 """
 function _symmetric_tsvd(A::AbstractTensorMap;
                          maxdim::Integer=iTEBD.MAXDIM,
                          cutoff::Real=iTEBD.SVDTOL)
     # Repartition: codomain (V_left, P_1), domain (P_2, V_right).
+    # In TensorKit 0.16 this is `permute(A, ((1, 2), (3, 4)))`.
     B = permute(A, ((1, 2), (3, 4)))
+    # Truncation strategy: cap rank at maxdim AND drop singular values below
+    # `cutoff` (`trunctol` filters by absolute value, default `by = abs`).
     strategy = truncrank(Int(maxdim)) & trunctol(; atol=Float64(cutoff))
     return svd_trunc!(B; trunc=strategy)
 end
 
-# Remaining method bodies are populated by subsequent chunks:
-#   Chunks 5-7 — canonical!, applygate!, expect, energy_density, ent_S
+# ─────────────────────────────────────────────────────────────────────────────
+# Chunk 5: Symmetric canonical!
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Apply the unit-cell transfer map to a bond-space density matrix.
+#
+# `dir = :r` produces (T_n ∘ ... ∘ T_1)(ρ), the right-acting transfer where the
+# rightmost site contracts ρ first. `dir = :l` produces the adjoint chain.
+#
+# The single-site right transfer is T_i(ρ)[a, b] = Σ_{s, c, d} Γ_i[a, s, c]
+# ρ[c, d] conj(Γ_i[b, s, d]). The full unit-cell map composes them in the order
+# T_1 ∘ T_2 ∘ ... ∘ T_n, so the iteration walks `i = n, n-1, …, 1` for `:r`.
+function _apply_transfer_unit_cell(ψ::iMPS, ρ::AbstractTensorMap; dir::Symbol)
+    n = ψ.n
+    out = ρ
+    indices = dir === :r ? (n:-1:1) : (1:n)
+    for i in indices
+        Γ = ψ.Γ[i]
+        if dir === :r
+            @tensor out_new[a; b] := Γ[a, s, c] * out[c; d] * conj(Γ[b, s, d])
+        else
+            @tensor out_new[a; b] := conj(Γ[c, s, a]) * out[c; d] * Γ[d, s, b]
+        end
+        out = out_new
+    end
+    return out
+end
+
+# Dominant fixed point of the unit-cell transfer map. Returns
+# `(λ_max, ρ)` where `λ_max` is the magnitude of the dominant transfer
+# eigenvalue (real, positive) and `ρ` is the corresponding Hermitian
+# positive-semidefinite fixed point normalised to trace 1.
+#
+# Notes on sign / phase: the transfer map preserves the cone of PSD
+# operators, so its dominant *PSD* eigenvalue is real and non-negative. For
+# random iMPSes with discrete symmetries in the bond space, the Arnoldi
+# spectrum often contains paired ±λ_max eigenvalues; the negative one
+# corresponds to an indefinite eigenvector and is NOT the physical fixed
+# point. We therefore request the top few Krylov vectors and pick the one
+# whose blockwise spectrum is closest to PSD.
+function _dominant_fixed_point(ψ::iMPS; dir::Symbol, tol::Real, maxiter::Integer)
+    n = ψ.n
+    Vbond = if dir === :r
+        # Right fixed point lives on the right virtual leg of Γ[n].
+        domain(ψ.Γ[n])[1]
+    else
+        # Left fixed point lives on the left virtual leg of Γ[1].
+        codomain(ψ.Γ[1])[1]
+    end
+    ρ0 = id(ComplexF64, Vbond)
+    matvec = ρ -> _apply_transfer_unit_cell(ψ, ρ; dir=dir)
+    # Request a handful of eigenvalues so we can pick the genuine PSD one in
+    # case of ±λ_max degeneracy.
+    howmany = min(4, dim(Vbond))
+    vals, vecs, info = eigsolve(matvec, ρ0, howmany, :LM;
+                                tol=tol, maxiter=maxiter, ishermitian=false)
+    info.converged ≥ 1 || @warn "Transfer map fixed-point eigsolve did not " *
+        "converge (dir=$dir); proceeding with the leading Ritz vector" info
+
+    # Identify the eigenvector closest to PSD: hermitianise each, compute the
+    # negative spectral weight (sum of negative eigenvalues per block), and
+    # take the one minimising that weight. The "right" eigenvector then has
+    # mostly non-negative eigenvalues (numerical noise aside).
+    best_idx = 1
+    best_neg = Inf
+    best_ρ   = nothing
+    for k in eachindex(vecs)
+        ρ_h = (vecs[k] + vecs[k]') / 2
+        # Flip the global sign if the trace is negative — this is a free
+        # gauge choice and gives the "positive face" of the candidate.
+        if real(tr(ρ_h)) < 0
+            ρ_h = -ρ_h
+        end
+        neg_weight = _negative_spectral_weight(ρ_h)
+        if neg_weight < best_neg
+            best_neg = neg_weight
+            best_idx = k
+            best_ρ   = ρ_h
+        end
+    end
+
+    ρ_dom = best_ρ
+    trace = real(tr(ρ_dom))
+    if trace > 0
+        ρ_dom = ρ_dom / trace
+    end
+    λ_max = abs(vals[best_idx])
+    return λ_max, ρ_dom
+end
+
+# Compute the sum of the magnitudes of negative eigenvalues across all blocks
+# of a Hermitian TensorMap. Zero (within tolerance) means PSD; large values
+# mean the operator is sign-indefinite.
+function _negative_spectral_weight(M::AbstractTensorMap)
+    w = 0.0
+    for (_sector, blk) in blocks(M)
+        H = (Matrix(blk) + Matrix(blk)') / 2
+        evs = eigvals(Hermitian(H))
+        for v in evs
+            r = real(v)
+            if r < 0
+                w += -r
+            end
+        end
+    end
+    return w
+end
+
+# Block-wise positive square root of a Hermitian, positive-semidefinite
+# TensorMap. The block algebra preserves U(1) sector structure trivially since
+# every block is processed independently.
+function _block_sqrt(M::AbstractTensorMap)
+    out = similar(M)
+    for (sector, blk) in blocks(M)
+        H = (Matrix(blk) + Matrix(blk)') / 2
+        F = eigen(Hermitian(H))
+        # Clamp tiny negatives from numerical noise to avoid complex sqrt.
+        evs = max.(real.(F.values), 0)
+        sq = F.vectors * Diagonal(sqrt.(evs)) * F.vectors'
+        copyto!(block(out, sector), sq)
+    end
+    return out
+end
+
+# Block-wise pseudo-inverse square root: M^{-1/2}, zeroing eigenvalues below a
+# per-block tolerance derived from the largest eigenvalue magnitude.
+function _block_isqrt(M::AbstractTensorMap)
+    out = similar(M)
+    for (sector, blk) in blocks(M)
+        H = (Matrix(blk) + Matrix(blk)') / 2
+        F = eigen(Hermitian(H))
+        evs = real.(F.values)
+        scale = isempty(evs) ? 0.0 : maximum(abs, evs)
+        tol = sqrt(eps(Float64)) * max(scale, 1.0)
+        invs = [v > tol ? inv(sqrt(v)) : 0.0 for v in evs]
+        isq = F.vectors * Diagonal(invs) * F.vectors'
+        copyto!(block(out, sector), isq)
+    end
+    return out
+end
+
+"""
+    canonical!(ψ::iMPS{<:AbstractTensorMap, <:DiagonalTensorMap};
+               maxdim=MAXDIM, cutoff=SVDTOL, renormalize=true,
+               tol=1e-12, maxiter=200)
+
+Bring a symmetric (TensorKit-backed) `iMPS` to Schmidt canonical form using
+TensorKit primitives.
+
+Algorithm (injective setting):
+
+1. Solve for the dominant right and left fixed points `R`, `L` of the
+   unit-cell transfer map (T_R from the stored tensors B = Γ λ; T_L is its
+   adjoint chain). KrylovKit's `eigsolve` is used as a matrix-free solver.
+2. Take Hermitian square roots: `X = sqrt(R)`, `Y = sqrt(L)`.
+3. SVD: `X · Y = U · S · V'`. The canonical Schmidt spectrum on the
+   wraparound bond is `Λ = S` (optionally renormalised so `sum(Λ²) = 1`).
+4. Apply the wraparound gauge `G = X · U`:
+   - For `n = 1`, the gauge sandwiches the single tensor:
+     `B_new = U' · X⁻¹ · B · X · U` and `ψ.λ[1] = Λ`.
+   - For `n > 1`, the gauge splits between the two boundary sites:
+     `B_n_new = B_n · X · U`, `B_1_new = U' · X⁻¹ · B_1`. The internal bonds
+     are then re-canonicalised by an SVD chain on the grouped unit cell so
+     that each individual `B_i` satisfies the right-canonical condition
+     `Σ_s B_i B_i' = I`.
+
+The algorithm assumes injectivity (a unique dominant transfer eigenvalue).
+This matches the dense `canonical!`'s assumption; non-injective / degenerate
+inputs may produce a meaningful but non-fully-canonical result.
+
+Keyword arguments:
+- `maxdim::Integer = MAXDIM` — Hard rank cap on each bond.
+- `cutoff::Real = SVDTOL`    — Discard singular values below this threshold.
+- `renormalize::Bool = true` — Rescale every bond so `sum(Λ²) = 1`.
+- `tol::Real = 1e-12`        — Convergence tolerance for `eigsolve`.
+- `maxiter::Integer = 200`   — Maximum Krylov restarts for `eigsolve`.
+"""
+function canonical!(ψ::iMPS{<:AbstractTensorMap, <:DiagonalTensorMap};
+                    maxdim::Integer=iTEBD.MAXDIM,
+                    cutoff::Real=iTEBD.SVDTOL,
+                    renormalize::Bool=true,
+                    tol::Real=1e-12,
+                    maxiter::Integer=200)
+    n = ψ.n
+    # 1. Dominant right and left fixed points of the unit-cell transfer map.
+    λ_r, R = _dominant_fixed_point(ψ; dir=:r, tol=tol, maxiter=maxiter)
+    λ_l, L = _dominant_fixed_point(ψ; dir=:l, tol=tol, maxiter=maxiter)
+
+    # The dominant transfer eigenvalue should match in both directions for an
+    # injective state (up to numerical noise). Take the average for a more
+    # robust per-site scaling factor.
+    λ_max = (real(λ_r) + real(λ_l)) / 2
+
+    # Rescale each Γ by λ_max^(1/(2n)) so the new unit-cell transfer eigenvalue
+    # becomes 1. After this, `Σ_s B_new · B_new' = I` will hold for the
+    # gauge-transformed state.
+    if λ_max > 0
+        scale = λ_max^(1 / (2 * n))
+        for i in 1:n
+            ψ.Γ[i] = ψ.Γ[i] / scale
+        end
+    end
+
+    # 2. Principal square roots (Hermitian, block-positive).
+    X    = _block_sqrt(R)
+    Xinv = _block_isqrt(R)
+    Y    = _block_sqrt(L)
+
+    # 3. SVD of M = X · Y. The new Schmidt values on the wraparound bond are
+    # the singular values; the gauge `G = X · U` rotates into the canonical
+    # basis (see derivation in the docstring).
+    M = X * Y
+    U, Λ, _Vt, _info = svd_trunc!(M;
+        trunc=truncrank(Int(maxdim)) & trunctol(; atol=Float64(cutoff)))
+    if renormalize
+        nrm = norm(Λ)
+        if !iszero(nrm)
+            Λ = Λ / nrm
+        end
+    end
+
+    # 4. Apply the wraparound gauge G = X·U and split for multi-site cells.
+    _absorb_gauge!(ψ, X, Xinv, U, Λ;
+                   maxdim=maxdim, cutoff=cutoff, renormalize=renormalize)
+    return ψ
+end
+
+# Reabsorb the wraparound gauge into ψ.Γ and ψ.λ, then re-canonicalise any
+# internal bonds via an SVD chain so every B_i is individually right-canonical.
+function _absorb_gauge!(ψ::iMPS{<:AbstractTensorMap, <:DiagonalTensorMap},
+                        X, Xinv, U, Λ;
+                        maxdim::Integer, cutoff::Real, renormalize::Bool)
+    n = ψ.n
+    # G_right = X · U is the gauge applied on the right of Γ[n] (and on the
+    # right of the single site for n = 1).
+    G_right = X * U
+    # G_left = U' · X⁻¹ is the gauge applied on the left of Γ[1] (or on the
+    # left of the single site for n = 1).
+    G_left = U' * Xinv
+
+    if n == 1
+        Γ_old = ψ.Γ[1]
+        @tensor Γ_new[a, s; c] := G_left[a; a'] * Γ_old[a', s; c'] *
+                                  G_right[c'; c]
+        ψ.Γ[1] = Γ_new
+        ψ.λ[1] = Λ
+        return ψ
+    end
+
+    # n > 1: gauge the boundary sites, then split internal bonds.
+    Γ_first = ψ.Γ[1]
+    Γ_last  = ψ.Γ[n]
+    # Absorb the wraparound Schmidt Λ on the LEFT of B_1 (in addition to the
+    # gauge transformation). This puts the grouped tensor into "centered
+    # canonical" form (Λ on both sides), which is the input shape the SVD
+    # chain in `_split_unit_cell!` expects — see derivation in that function.
+    @tensor Γ_first_new[a, s; c] := Λ[a; a''] * G_left[a''; a'] * Γ_first[a', s; c]
+    @tensor Γ_last_new[a, s; c]  := Γ_last[a, s; c'] * G_right[c'; c]
+    ψ.Γ[1] = Γ_first_new
+    ψ.Γ[n] = Γ_last_new
+    ψ.λ[n] = Λ
+
+    # Recanonicalise internal bonds by a left-to-right SVD chain over the
+    # grouped unit cell. With Λ already left-mul'd into ψ.Γ[1], the SVD chain
+    # starts with `λi = Λ` and produces individually right-canonical B_i's
+    # whose left-Schmidt factor matches the wraparound Λ.
+    _split_unit_cell!(ψ, Λ; maxdim=maxdim, cutoff=cutoff, renormalize=renormalize)
+    return ψ
+end
+
+# Split a multi-site unit cell back into individually right-canonical site
+# tensors. After the wraparound gauge, the grouped tensor
+# `T = B_1 · B_2 · ... · B_n` is right-canonical as a whole (Σ_phys T·T' = I).
+#
+# The algorithm mirrors the dense `tensor_decomp!` (left-to-right SVD sweep):
+# at each step the leftmost site is split off; the new Schmidt is absorbed on
+# its right (to maintain `B_i = Γ_i · λ_i` storage convention) and on the LEFT
+# of the remaining tensor (so the next iteration sees a "left-Schmidt-absorbed"
+# tensor analogous to the wraparound starting state). The final remaining
+# tensor is the rightmost site's stored B (it is already right-canonical as an
+# SVD isometry).
+function _split_unit_cell!(ψ::iMPS{<:AbstractTensorMap, <:DiagonalTensorMap},
+                           Λwrap::DiagonalTensorMap;
+                           maxdim::Integer, cutoff::Real, renormalize::Bool)
+    n = ψ.n
+    n > 1 || return ψ
+
+    # Build the full grouped tensor T = B_1 · B_2 · ... · B_n.
+    T = ψ.Γ[1]
+    for i in 2:n
+        T = _contract_right(T, ψ.Γ[i])
+    end
+    # T has codomain (V_left, P_1, ..., P_n), domain V_right.
+
+    truncstrat = truncrank(Int(maxdim)) & trunctol(; atol=Float64(cutoff))
+    λi = Λwrap            # previous Schmidt entering the leftmost site
+    λi_inv = _diag_inverse(λi)
+    Ti = T
+    for site in 1:(n - 1)
+        # Repartition Ti: codomain (V_l, P_{site}), domain (P_{site+1..n}, V_r).
+        num_cod = numout(Ti)
+        num_dom = numin(Ti)
+        cod_inds = (1, 2)
+        dom_inds = (ntuple(k -> 2 + k, num_cod - 2)..., num_cod + 1)
+        # The above assumes Ti has codomain rank (1 + (n - site + 1)) = (n - site + 2)
+        # and domain rank 1. Wait — the codomain shrinks each iteration, so we
+        # have to recompute. The grouped Ti at iteration `site` has codomain
+        # (V_l_current, P_site, P_{site+1}, ..., P_n) of rank (n - site + 2)
+        # and domain V_right of rank 1.
+        # Split: codomain (V_l_current, P_site), domain (P_{site+1}, ..., P_n, V_right).
+        cod_keep = (1, 2)
+        dom_move = ntuple(k -> 2 + k, num_cod - 2)
+        dom_inds = (dom_move..., num_cod + 1)
+        Ti_perm = permute(Ti, (cod_keep, dom_inds))
+
+        Ai, Λnew, Vt_part, _info = svd_trunc!(Ti_perm; trunc=truncstrat)
+        if renormalize
+            nrm = norm(Λnew)
+            if !iszero(nrm)
+                Λnew = Λnew / nrm
+            end
+        end
+
+        # Stored site tensor: B_site = λi⁻¹ · Ai · Λnew.
+        # Ai has codomain (V_l_current, P_site), domain (new_bond).
+        # λi has codomain (V_l_current) ← (V_l_current).
+        # Λnew has codomain (new_bond) ← (new_bond).
+        Ai_div = _absorb_diag_left(Ai, λi_inv)
+        Bi = _absorb_diag_right(Ai_div, Λnew)
+        ψ.Γ[site] = Bi
+        ψ.λ[site] = Λnew
+
+        # Prepare Ti for the next iteration: Ti_new = Λnew · Vt_part (left-mul
+        # by the new Schmidt). This way the next iteration's "λi" is Λnew.
+        if site < n - 1
+            Ti_new = _absorb_diag_left_on_codomain(Vt_part, Λnew)
+            Ti = Ti_new
+            λi = Λnew
+            λi_inv = _diag_inverse(λi)
+        else
+            # Last iteration: do NOT left-mul by Λnew. The remaining Vt_part
+            # becomes the stored B_n directly (it is right-canonical by virtue
+            # of being an SVD isometry). However, we still need to reshape it
+            # to match the storage convention (V_l, P_n) ← V_right.
+            ψ.Γ[n] = _vt_to_site_tensor(Vt_part)
+        end
+    end
+    return ψ
+end
+
+# Helper: contract T with the next site G on T's right virtual leg.
+# T has codomain `(V_left, P_1, ..., P_{k-1})` and domain `V_mid`.
+# G has codomain `(V_mid, P_k)` and domain `V_right`.
+# Result has codomain `(V_left, P_1, ..., P_k)` and domain `V_right`.
+function _contract_right(T::AbstractTensorMap, G::AbstractTensorMap)
+    # Repartition G: codomain (V_mid,), domain (P_k, V_right).
+    G_perm = permute(G, ((1,), (2, 3)))
+    M = T * G_perm
+    num_cod_M = numout(M)
+    cod_inds = (ntuple(i -> i, num_cod_M)..., num_cod_M + 1)
+    dom_inds = (num_cod_M + 2,)
+    return permute(M, (cod_inds, dom_inds))
+end
+
+# Helper: convert a Vt-style tensor with codomain (new_bond,) and domain
+# (P, V_right) into the iMPS storage convention (V_left, P) ← V_right.
+function _vt_to_site_tensor(Vt::AbstractTensorMap)
+    @assert numout(Vt) == 1 && numin(Vt) == 2
+    return permute(Vt, ((1, 2), (3,)))
+end
+
+# Helper: absorb diagonal map λ on the RIGHT virtual leg of U.
+# U has codomain shape (..., V_mid) actually — wait we need to be careful.
+# In our convention, U from SVD has codomain (V_l, P), domain (V_mid). We want
+# U_new = U · λ where λ has codomain (V_mid) ← (V_mid). This is straightforward
+# composition: U * λ gives codomain (V_l, P), domain (V_mid_new).
+function _absorb_diag_right(U::AbstractTensorMap, λ::AbstractTensorMap)
+    return U * λ
+end
+
+# Helper: absorb diagonal map λi on the LEFT virtual leg of U.
+# U has codomain (V_l, P), domain (V_mid). λi has codomain (V_l) ← (V_l).
+# We need to compute λi⁻¹ · U where λi⁻¹ acts on U's first codomain leg.
+# Using a contraction macro is cleanest here.
+function _absorb_diag_left(U::AbstractTensorMap, λi_inv::AbstractTensorMap)
+    @tensor out[a, s; c] := λi_inv[a; a'] * U[a', s; c]
+    return out
+end
+
+# Helper: left-multiply a diagonal on the codomain side. For a Vt-style tensor
+# `Vt` with codomain (new_bond,) and domain (P_2, ..., P_n, V_r), absorb λ
+# (codomain (new_bond) ← (new_bond)) on the LEFT: λ * Vt.
+function _absorb_diag_left_on_codomain(Vt::AbstractTensorMap, λ::AbstractTensorMap)
+    return λ * Vt
+end
+
+# Helper: compute the pseudo-inverse of a DiagonalTensorMap (sector-wise).
+function _diag_inverse(λ::DiagonalTensorMap)
+    out = similar(λ)
+    for (sector, blk) in blocks(λ)
+        out_blk = block(out, sector)
+        for i in 1:size(blk, 1)
+            v = blk[i, i]
+            inv_v = abs(v) > sqrt(eps(real(eltype(blk)))) ? inv(v) : zero(v)
+            out_blk[i, i] = inv_v
+        end
+    end
+    return out
+end
 
 end # module
