@@ -6,4 +6,4 @@ LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 
 [compat]
 Documenter = "1"
-TensorKit = "0.14, 0.15, 0.16"
+TensorKit = "0.16"

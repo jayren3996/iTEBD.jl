@@ -2,7 +2,7 @@
 
 julia_version = "1.12.6"
 manifest_format = "2.0"
-project_hash = "f76dc7399de9844c626c3b8a474c47255632de7c"
+project_hash = "079f34d4df5cfd5a89b14981a8005903c5a12f59"
 
 [[deps.ANSIColoredPrinters]]
 git-tree-sha1 = "574baf8110975760d391c710b6341da1afa48d8c"
@@ -346,9 +346,9 @@ version = "1.5.0"
 
 [[deps.Git_LFS_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl"]
-git-tree-sha1 = "bb8471f313ed941f299aa53d32a94ab3bee08844"
+git-tree-sha1 = "8c66e385d631bb934ff05e76d4a566c640c8df69"
 uuid = "020c3dae-16b3-5ae5-87b3-4cb189e250b2"
-version = "3.7.0+0"
+version = "3.7.1+0"
 
 [[deps.Git_jll]]
 deps = ["Artifacts", "Expat_jll", "JLLWrappers", "LibCURL_jll", "Libdl", "Libiconv_jll", "OpenSSL_jll", "PCRE2_jll", "Zlib_jll"]
@@ -374,9 +374,9 @@ version = "1.0.0"
 
 [[deps.ITensorMPS]]
 deps = ["Adapt", "Compat", "ITensors", "IsApprox", "KrylovKit", "LinearAlgebra", "NDTensors", "Printf", "Random", "SerializedElementArrays", "TupleTools"]
-git-tree-sha1 = "640cd8828719b29895af18eacc8c6a7628285cdd"
+git-tree-sha1 = "87f561eba7f138aea267f0f993522f87cc05e58f"
 uuid = "0d1a4710-d33b-49a5-8f18-73bdf49b47e2"
-version = "0.4.1"
+version = "0.3.45"
 
     [deps.ITensorMPS.extensions]
     ITensorMPSChainRulesCoreExt = "ChainRulesCore"
@@ -394,19 +394,17 @@ version = "0.4.1"
 
 [[deps.ITensors]]
 deps = ["Adapt", "BitIntegers", "ChainRulesCore", "Compat", "Dictionaries", "DocStringExtensions", "Functors", "IsApprox", "LinearAlgebra", "NDTensors", "Pkg", "Printf", "Random", "Requires", "SerializedElementArrays", "SimpleTraits", "SparseArrays", "StaticArrays", "Strided", "TimerOutputs", "TupleTools", "Zeros"]
-git-tree-sha1 = "7d30e54bbb10508ba0b03ae32a3120e47dd7a7bf"
+git-tree-sha1 = "8aeed14394c8f1e3091d025a84f9195727e00aaf"
 uuid = "9136182c-28ba-11e9-034c-db9fb085ebd5"
-version = "0.9.27"
+version = "0.8.10"
 
     [deps.ITensors.extensions]
     ITensorsHDF5Ext = "HDF5"
-    ITensorsTensorOperationsExt = "TensorOperations"
     ITensorsVectorInterfaceExt = "VectorInterface"
     ITensorsZygoteRulesExt = "ZygoteRules"
 
     [deps.ITensors.weakdeps]
     HDF5 = "f67ccb44-e63f-5c2f-98bd-6dc0ccc4ba2f"
-    TensorOperations = "6aa20fa7-93e2-5fca-9bc0-fbd0db3c71a2"
     VectorInterface = "409d34a3-91d5-4945-b6ec-7529ddf182d8"
     ZygoteRules = "700de1a5-db45-46bc-99cf-38207098b444"
 
@@ -494,9 +492,9 @@ version = "1.12.0"
 
 [[deps.KrylovKit]]
 deps = ["LinearAlgebra", "PackageExtensionCompat", "Printf", "Random", "VectorInterface"]
-git-tree-sha1 = "1ab4539f47bee7e5045f679e5136ccaa3c8c40c3"
+git-tree-sha1 = "38477816f8db29956ea591feb3086d9edabf6f38"
 uuid = "0b1a1467-8014-51b9-945f-bf0ae24f4b77"
-version = "0.10.3"
+version = "0.9.5"
 weakdeps = ["ChainRulesCore"]
 
     [deps.KrylovKit.extensions]
@@ -799,9 +797,9 @@ version = "1.1.2"
 
 [[deps.SimpleTraits]]
 deps = ["InteractiveUtils", "MacroTools"]
-git-tree-sha1 = "be8eeac05ec97d379347584fa9fe2f5f76795bcb"
+git-tree-sha1 = "7ddb0b49c109481b046972c0e4ab02b2127d6a75"
 uuid = "699a6c99-e7fa-54fc-8d76-47d257e15c1d"
-version = "0.9.5"
+version = "0.9.6"
 
 [[deps.Sockets]]
 uuid = "6462fe0b-24de-5631-8697-dd941f90decc"
@@ -814,9 +812,9 @@ version = "1.12.0"
 
 [[deps.SplitApplyCombine]]
 deps = ["Dictionaries", "Indexing"]
-git-tree-sha1 = "c06d695d51cfb2187e6848e98d6252df9101c588"
+git-tree-sha1 = "55db78e829cf726162fc4fc1b30d05f92092f3f6"
 uuid = "03a91e81-4c3e-53e1-a0a4-9c0c8f19dd66"
-version = "1.2.3"
+version = "1.3.0"
 
 [[deps.SplittablesBase]]
 deps = ["Setfield", "Test"]
@@ -903,9 +901,9 @@ version = "0.5.1"
 
 [[deps.StructUtils]]
 deps = ["Dates", "UUIDs"]
-git-tree-sha1 = "dd974aefe288ef2898733aecf40858dc86742d74"
+git-tree-sha1 = "82bee338d650aa515f31866c460cb7e3bcef90b8"
 uuid = "ec057cc2-7a8d-4b58-b3b3-92acb9f63b42"
-version = "2.8.1"
+version = "2.8.2"
 
     [deps.StructUtils.extensions]
     StructUtilsMeasurementsExt = ["Measurements"]
@@ -1103,17 +1101,10 @@ uuid = "9f57e263-0b3d-5e2e-b1be-24f2bb48858b"
 version = "2.0.0"
 
 [[deps.Zeros]]
-git-tree-sha1 = "d16ddbfd4eb94272c9036407dd8f59549dd4a8e0"
+deps = ["Test"]
+git-tree-sha1 = "7eb4fd47c304c078425bf57da99a56606150d7d4"
 uuid = "bd1ec220-6eb4-527a-9b49-e79c3db6233b"
-version = "0.4.1"
-
-    [deps.Zeros.extensions]
-    ZerosRandomExt = "Random"
-    ZerosSIMDExt = "SIMD"
-
-    [deps.Zeros.weakdeps]
-    Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
-    SIMD = "fdea26ae-647d-5447-a871-4b548cad5224"
+version = "0.3.0"
 
 [[deps.Zlib_jll]]
 deps = ["Libdl"]
@@ -1122,7 +1113,7 @@ version = "1.3.1+2"
 
 [[deps.iTEBD]]
 deps = ["ITensorMPS", "ITensors", "KrylovKit", "LinearAlgebra", "SparseArrays", "TensorOperations"]
-path = ".."
+path = "/Users/ren/Library/CloudStorage/OneDrive-UniversityofLeeds/GitHub/iTEBD.jl"
 uuid = "3e658c4a-00a9-4be6-9955-e21302391b0e"
 version = "1.5.0"
 weakdeps = ["TensorKit"]
