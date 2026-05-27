@@ -302,6 +302,24 @@ end
     end
 end
 
+@testset "canonical! on symmetric iMPS, n=4 product state" begin
+    # n=4 runs the _split_unit_cell! loop twice with the repartition step
+    # (sites 1 and 2). Same correctness target as n=3: each Γ stays a
+    # right-isometry per block.
+    ψ = product_iMPS(:U1, [-1, 1, 0], [1, -1, 1, -1])
+    canonical!(ψ)
+    @test ψ.n == 4
+    for k in 1:4
+        Γ = ψ.Γ[k]
+        @test dim(codomain(Γ)[1]) == 1
+        @test dim(domain(Γ)[1]) == 1
+        @tensor R[a; b] := Γ[a, s, c] * conj(Γ[b, s, c])
+        for (_, blk) in blocks(R)
+            @test isapprox(blk, Matrix{ComplexF64}(I, size(blk)); atol=1e-9)
+        end
+    end
+end
+
 @testset "canonical! on symmetric iMPS, n=3 product state" begin
     # n=3 is the smallest unit cell that triggers the iterative `_split_unit_cell!`
     # repartition (n=2 takes the terminal branch directly). A bond-dim-1 product
@@ -385,6 +403,25 @@ end
     evolve!(ψ, gates, 3; maxdim=8)
     @test ψ.Γ[1] isa AbstractTensorMap
     @test ψ.λ[1] isa DiagonalTensorMap
+end
+
+@testset "evolve! end-to-end on a Z2 product state" begin
+    # Build a Z_2 product state whose flux closes mod 2, apply identity gates
+    # via evolve!, and verify the Z_2 grading is preserved at every bond.
+    # This is the smallest end-to-end exercise of the Z_2 dispatch path
+    # through product_iMPS → canonical! → applygate!.
+    ψ = product_iMPS(:Z2, [0, 1], [1, 1])
+    P = codomain(ψ.Γ[1])[2]
+    Iop = id(ComplexF64, P ⊗ P)
+    gates = [(Iop, 1, 2), (Iop, 2, 1)]
+    evolve!(ψ, gates, 3; maxdim=4)
+    @test ψ.n == 2
+    @test sectortype(codomain(ψ.Γ[1])[1]) == Z2Irrep
+    for i in 1:ψ.n
+        Vr      = domain(ψ.Γ[i])[1]
+        Vl_next = codomain(ψ.Γ[mod1(i + 1, ψ.n)])[1]
+        @test Vr == Vl_next
+    end
 end
 
 @testset "evolve! propagates cutoff to symmetric applygate!" begin
@@ -485,6 +522,43 @@ end
     end
 end
 
+@testset "dense and symmetric backends agree on one Heisenberg gate" begin
+    # Same physical setup in both backends (Néel state, spin-1/2 XXX), apply
+    # one imaginary-time gate, compare energy densities. This catches
+    # convention drifts between paths — exactly the kind of bug that bit
+    # `expect` / `energy_density` during the symmetric rollout (one vs two
+    # λL factors).
+    dt = 0.05
+
+    # Dense Néel state and Heisenberg gate.
+    Sz_d = ComplexF64[0.5  0; 0 -0.5]
+    Sp_d = ComplexF64[0   1; 0  0]
+    Sm_d = ComplexF64[0   0; 1  0]
+    h_d = real(kron(Sz_d, Sz_d) + 0.5 * (kron(Sp_d, Sm_d) + kron(Sm_d, Sp_d)))
+    gate_d = exp(-dt * Matrix(h_d))
+    up   = ComplexF64[1, 0]
+    down = ComplexF64[0, 1]
+    ψ_d = product_iMPS(ComplexF64, [up, down])
+
+    # Symmetric Néel state and gate via the U(1) helper.
+    ψ_s = product_iMPS(:U1, [-1, 1], [1, -1])
+    Sz_s, SzSz, SpSm, SmSp = spin_half_ops(:U1)
+    h_s = SzSz + 0.5 * (SpSm + SmSp)
+    gate_s = exp(-dt * h_s)
+
+    # Pre-gate: ⟨h⟩ on Néel is exactly -0.25, both backends agree.
+    @test isapprox(real(energy_density(ψ_d, h_d)), -0.25; atol=1e-9)
+    @test isapprox(real(energy_density(ψ_s, h_s)), -0.25; atol=1e-9)
+
+    # Apply one gate per backend at the same bond, compare.
+    applygate!(ψ_d, gate_d, 1, 2)
+    applygate!(ψ_s, gate_s, 1, 2)
+    E_d_after = real(energy_density(ψ_d, h_d))
+    E_s_after = real(energy_density(ψ_s, h_s))
+    @test isapprox(E_d_after, E_s_after; atol=1e-7)
+    @test E_d_after < -0.25   # imaginary-time gate lowers the energy
+end
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Post-review polish tests (blocking fixes #1, #2, important fix #1)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -513,5 +587,11 @@ end
     V = graded_space(:U1, 0=>1, 1=>1, -1=>1, 2=>1, -2=>1)
     ψ = rand_iMPS(P, V, 2)
     canonical!(ψ; cutoff=1e-14)
-    @test isapprox(sum(abs2, schmidt_values(ψ, 1)), 1.0; atol=1e-9)
+    vals = schmidt_values(ψ, 1)
+    @test issorted(vals; rev=true)
+    @test isapprox(sum(abs2, vals), 1.0; atol=1e-9)
+    # Any sub-eps noise modes must be cleared — if cutoff were silently floored
+    # at sqrt(eps) ≈ 1.5e-8, this assertion would not be informative; with the
+    # user-supplied 1e-14 in effect, the kept entries must all clear it.
+    @test all(>(1e-14), vals)
 end
