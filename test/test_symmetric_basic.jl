@@ -192,6 +192,25 @@ end
     @test dim(domain(ψ.Γ[1])[1]) ≤ 4
 end
 
+@testset "rand_iMPS(:Trivial, charges, χ)" begin
+    # The :Trivial physical space is ungraded — charge labels are ignored,
+    # only the total dimension matters. Previously
+    # `graded_space(:Trivial, [c=>1 for c in charges]...)` was called with
+    # multiple pairs and threw "takes exactly one charge=>dim pair", even
+    # though :Trivial is advertised as supported by `rand_iMPS(symbol, …)`.
+    ψ = rand_iMPS(:Trivial, [0, 0]; χ=4, n=2)
+    @test ψ.Γ[1] isa AbstractTensorMap
+    @test ψ.λ[1] isa DiagonalTensorMap
+    @test ψ.n == 2
+    @test dim(codomain(ψ.Γ[1])[2]) == 2   # physical leg has dim(charges)=2
+    @test dim(domain(ψ.Γ[1])[1]) ≤ 4
+
+    # Charge labels really are ignored for :Trivial — only `length(charges)`
+    # determines the physical dimension.
+    ψ2 = rand_iMPS(:Trivial, [7, -3, 11]; χ=4, n=1)
+    @test dim(codomain(ψ2.Γ[1])[2]) == 3
+end
+
 @testset "wraparound seam (bond n→1) failure" begin
     P  = graded_space(:U1, 1=>1, -1=>1)
     Va = graded_space(:U1, 0=>1)

@@ -256,7 +256,12 @@ function rand_iMPS(sym::Symbol, charges::AbstractVector{<:Integer};
         "rand_iMPS(symbol-based) currently only supports flux=0 in v1. " *
         "For non-zero target flux, use the raw `rand_iMPS(pspace, vspace, n)` " *
         "form and build the bond space yourself."))
-    P = graded_space(sym, [c => 1 for c in charges]...)
+    # `:Trivial` has no grading, so per-charge=>1 pairs aren't meaningful —
+    # `graded_space(:Trivial, …)` only accepts a single pair. Build the
+    # ungraded physical space directly from the basis count instead, which
+    # matches the user's intent ("one basis state per charge label").
+    P = sym === :Trivial ? ComplexSpace(length(charges)) :
+                            graded_space(sym, [c => 1 for c in charges]...)
     V = _auto_bond_space(sym, P, χ; flux=flux)
     return rand_iMPS(P, V, n)
 end
