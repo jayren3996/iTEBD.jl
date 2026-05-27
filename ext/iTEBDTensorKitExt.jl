@@ -785,4 +785,83 @@ function _diag_inverse(λ::DiagonalTensorMap)
     return out
 end
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Chunk 6: Symmetric applygate! for nearest-neighbour two-site gates
+# ─────────────────────────────────────────────────────────────────────────────
+
+# `_evolve_gate_sequence!` in Gate.jl calls `maximum(length, ψ.λ; init=mindim)`
+# to compute the current bond dimension. For SymmetricIMPS each λ[i] is a
+# DiagonalTensorMap, so we expose `length` as the total virtual dimension.
+Base.length(λ::DiagonalTensorMap) = dim(domain(λ)[1])
+
+import iTEBD: applygate!
+
+"""
+    applygate!(ψ::SymmetricIMPS, G::AbstractTensorMap, i::Integer, j::Integer;
+               maxdim=MAXDIM, cutoff=SVDTOL, renormalize=true, kwargs...)
+
+Apply a two-site gate `G` to neighbouring sites `i` and `j = mod1(i+1, ψ.n)`
+of a symmetric infinite MPS in place. `G` must be a TensorMap with codomain
+`P ⊗ P` and domain `P ⊗ P`, where `P` matches the physical leg of `ψ`.
+
+Algorithm:
+1. Group: `B[a,s,t;c] = Γi[a,s;m] * Γj[m,t;c]`.
+2. Apply gate: `B'[a,s,t;c] = G[s,t;u,v] * B[a,u,v;c]`.
+3. SVD `B'` on the `(a,s) | (t,c)` cut via `_symmetric_tsvd`.
+4. Store `U` as `ψ.Γ[i]`, `S * Vt` as `ψ.Γ[j]`, `S` as `ψ.λ[i]`.
+
+Only nearest-neighbour gates (`j = mod1(i+1, ψ.n)`) are supported.
+Extra keyword arguments (`mindim`, `truncerr`, `svd_min`, `return_stats`, etc.)
+from the base `evolve!` routing are accepted and silently ignored so that
+dispatch through `_evolve_gate_sequence!` works without modification.
+"""
+function applygate!(ψ::iMPS{<:AbstractTensorMap, <:DiagonalTensorMap},
+                    G::AbstractTensorMap, i::Integer, j::Integer;
+                    maxdim::Integer=iTEBD.MAXDIM,
+                    cutoff::Real=iTEBD.SVDTOL,
+                    renormalize::Bool=true,
+                    kwargs...)
+    j == mod1(i + 1, ψ.n) || throw(ArgumentError(
+        "v1 symmetric applygate! supports nearest-neighbour two-site gates only " *
+        "(got i=$i, j=$j on n=$(ψ.n))"))
+
+    Γi = ψ.Γ[i]
+    Γj = ψ.Γ[j]
+
+    # Step 1: group the two-site block.
+    # Γi has codomain (V_l, P), domain (V_mid).
+    # Γj has codomain (V_mid, P), domain (V_r).
+    # B has codomain (V_l, P1, P2), domain (V_r).
+    @tensor B[a, s, t; c] := Γi[a, s; m] * Γj[m, t; c]
+
+    # Step 2: apply the gate.
+    # G has codomain (P1, P2), domain (P1, P2) — the convention used by
+    # spin_half_ops(:U1) and id(P ⊗ P).
+    @tensor B′[a, s, t; c] := G[s, t; u, v] * B[a, u, v; c]
+
+    # Step 3: SVD with (V_l, P1) | (P2, V_r) cut.
+    U, S, Vt, _ = _symmetric_tsvd(B′; maxdim=maxdim, cutoff=cutoff)
+
+    if renormalize
+        nrm = norm(S)
+        nrm > 0 && (S = S / nrm)
+    end
+
+    # Step 4: store results. Package convention: absorb Schmidt values S into
+    # the right tensor Γj so that Γi = U is a left isometry.
+    #
+    # After _symmetric_tsvd:
+    #   U   has codomain (V_l, P1), domain (V_mid) — shape (2,1), ready for ψ.Γ[i].
+    #   Vt  has codomain (V_mid,), domain (P2, V_r) — shape (1,2).
+    #
+    # Storage convention for Γ is (V_l, P) ← V_r — shape (2,1).
+    # Absorb S on the left of Vt to get S·Vt with shape (1,2), then
+    # permute to (2,1) via _vt_to_site_tensor to match the convention.
+    ψ.Γ[i] = U
+    ψ.λ[i] = S
+    ψ.Γ[j] = _vt_to_site_tensor(S * Vt)
+
+    return ψ
+end
+
 end # module

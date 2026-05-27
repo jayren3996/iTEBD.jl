@@ -257,3 +257,44 @@ end
         @test isapprox(blk, Matrix{ComplexF64}(I, size(blk)); atol=1e-7)
     end
 end
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Chunk 6: Symmetric applygate! and evolve! routing
+# ─────────────────────────────────────────────────────────────────────────────
+
+@testset "applygate! symmetric two-site identity" begin
+    using Random
+    Random.seed!(2)
+    P = graded_space(:U1, 1=>1, -1=>1)
+    V = graded_space(:U1, 0=>2, 2=>1, -2=>1)
+    ψ = rand_iMPS(P, V, 2)
+    canonical!(ψ)
+
+    norm_before = schmidt_values(ψ, 1)
+
+    # The identity gate on two physical sites should leave ψ unchanged up to
+    # truncation noise.
+    Iop = id(ComplexF64, P ⊗ P)
+    applygate!(ψ, Iop, 1, 2; maxdim=8)
+
+    norm_after = schmidt_values(ψ, 1)
+
+    # After truncation the kept Schmidt values should match the pre-gate ones
+    # (modulo numerical noise and the truncation-to-maxdim=8 contract).
+    n_keep = min(length(norm_before), length(norm_after), 8)
+    @test isapprox(norm_before[1:n_keep], norm_after[1:n_keep]; atol=1e-9)
+end
+
+@testset "evolve! routes through symmetric applygate!" begin
+    using Random
+    Random.seed!(2)
+    P = graded_space(:U1, 1=>1, -1=>1)
+    V = graded_space(:U1, 0=>2, 2=>1, -2=>1)
+    ψ = rand_iMPS(P, V, 2)
+    canonical!(ψ)
+    Iop = id(ComplexF64, P ⊗ P)
+    gates = [(Iop, 1, 2), (Iop, 2, 1)]
+    evolve!(ψ, gates, 3; maxdim=8)
+    @test ψ.Γ[1] isa AbstractTensorMap
+    @test ψ.λ[1] isa DiagonalTensorMap
+end
