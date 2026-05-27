@@ -1,6 +1,7 @@
 using Test
 using iTEBD
-using LinearAlgebra: I, norm, tr
+using LinearAlgebra: I, norm, tr, Diagonal, eigen, Hermitian
+using Random
 
 # Explicit imports from TensorKit to avoid name conflicts with ITensors
 # (both are test dependencies and share some exported names like `dim`, `space`).
@@ -336,4 +337,41 @@ end
     e = energy_density(ψ, h)
     @test isapprox(real(e), -0.25; atol=1e-10)
     @test isapprox(imag(e),  0.0;  atol=1e-10)
+end
+
+@testset "applygate! preserves canonical form across many gate applications" begin
+    # Use imaginary-time Heisenberg gates starting from the Néel product state.
+    # The Néel state has bond dim 1 (only U1(0) sector). Under imaginary-time
+    # evolution the bond grows gradually — we use maxdim=4 to keep it bounded
+    # well below truncation noise. Because only the U1(0) sector is populated,
+    # no sector can be accidentally cut to zero by the SVD cutoff, making the
+    # invariant checks reliable.
+    Sz, SzSz, SpSm, SmSp = spin_half_ops(:U1)
+    h = SzSz + 0.5 * (SpSm + SmSp)
+    dt = 0.05
+    G = exp(-dt * h)   # imaginary-time gate (real, non-unitary)
+    ψ = product_iMPS(:U1, [-1, 1], [1, -1])   # Néel product state, bond dim 1
+
+    # Apply 20 full Trotter steps (non-wrap then wrap gate each step).
+    # The wrap gate triggers canonical! inside applygate!.
+    for step in 1:20
+        applygate!(ψ, G, 1, 2; maxdim=4)
+        applygate!(ψ, G, 2, 1; maxdim=4)
+    end
+
+    # The canonical-form invariant: ψ.Γ[i] should remain a right-isometry,
+    # i.e., Σ_s Γ[i]_{a,s,c} · conj(Γ[i]_{b,s,c}) ≈ δ_{ab} on the codomain bond.
+    for i in 1:ψ.n
+        Γ = ψ.Γ[i]
+        @tensor R[a; b] := Γ[a, s, c] * conj(Γ[b, s, c])
+        for (sec, blk) in blocks(R)
+            ident = Matrix{ComplexF64}(I, size(blk))
+            @test isapprox(blk, ident; atol=1e-8)
+        end
+    end
+
+    # Schmidt-value normalisation invariant.
+    for i in 1:ψ.n
+        @test isapprox(sum(abs2, schmidt_values(ψ, i)), 1.0; atol=1e-8)
+    end
 end

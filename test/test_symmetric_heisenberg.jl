@@ -17,9 +17,6 @@ using Random
     dt = 0.05
     gates = [(exp(-dt * h), 1, 2), (exp(-dt * h), 2, 1)]
     evolve!(ψ, gates, 400; maxdim=32, cutoff=1e-10)
-    # Bring to canonical form before measuring energy — energy_density is only
-    # exact on a Schmidt-canonical state.
-    canonical!(ψ; maxdim=32, cutoff=1e-10)
 
     e = energy_density(ψ, h)
     # Bethe-ansatz ground-state energy density of the spin-1/2 Heisenberg chain
@@ -47,8 +44,6 @@ end
     ψs = product_iMPS(:U1, [-1, 1], [1, -1])
     gates_s = [(exp(-dt * h_s), 1, 2), (exp(-dt * h_s), 2, 1)]
     evolve!(ψs, gates_s, 400; maxdim=8, cutoff=1e-10)
-    # Bring to canonical form before measuring — energy_density requires it.
-    canonical!(ψs; maxdim=8, cutoff=1e-10)
     e_sym = energy_density(ψs, h_s)
 
     @test isapprox(real(e_dense), real(e_sym); atol=1e-4)

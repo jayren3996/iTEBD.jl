@@ -814,6 +814,11 @@ Only nearest-neighbour gates (`j = mod1(i+1, ψ.n)`) are supported.
 Extra keyword arguments (`mindim`, `truncerr`, `svd_min`, `return_stats`, etc.)
 from the base `evolve!` routing are accepted and silently ignored so that
 dispatch through `_evolve_gate_sequence!` works without modification.
+
+For wrap-around gates (gate spans the seam between site n and site 1), the
+state is automatically re-canonicalised after the gate to prevent
+canonical-form drift across many evolution steps. This matches the dense
+`applygate!` behavior.
 """
 function applygate!(ψ::iMPS{<:AbstractTensorMap, <:DiagonalTensorMap},
                     G::AbstractTensorMap, i::Integer, j::Integer;
@@ -874,6 +879,21 @@ function applygate!(ψ::iMPS{<:AbstractTensorMap, <:DiagonalTensorMap},
     ψ.Γ[i] = Γi_new
     ψ.λ[i] = S
     ψ.Γ[j] = _vt_to_site_tensor(Vt)
+
+    # Wrap-around gates (j < i in 1-based unit-cell coordinates, i.e. the gate
+    # spans the seam between site n and site 1) leave the left transfer-matrix
+    # fixed point inconsistent at the seam: the SVD restores canonicality
+    # *locally* at sites i and j but not at the bonds elsewhere in the cell.
+    # Mirror the dense applygate! at src/Gate.jl (search for "j0 < i0") and
+    # re-canonicalise the cell.
+    # Guard: only re-canonicalise if all bond spaces are non-empty (dim > 0).
+    # A hard truncation can leave an empty sector in S, making the bond-space
+    # identity vector zero-normed and causing eigsolve to fail. In that case
+    # the state is effectively rank-0 on that sector and canonical! would be
+    # a no-op anyway.
+    if j < i && all(k -> dim(domain(ψ.Γ[k])[1]) > 0, 1:ψ.n)
+        canonical!(ψ; maxdim=maxdim, cutoff=cutoff, renormalize=renormalize)
+    end
 
     return ψ
 end
