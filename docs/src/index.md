@@ -15,12 +15,14 @@ quantity you care about (entanglement structure, bulk energy density, scar
 trajectories) is defined per unit cell rather than for a particular system
 size.
 
-The package deliberately stays narrow. It does not implement finite-size DMRG,
-mixed boundary conditions, or symmetric tensors, and it assumes the injective
-setting throughout canonicalization. If you need any of those, a finite-MPS
-package such as `ITensors.jl` is a better starting point. What you do get here
-is a compact `iMPS` type, explicit control over truncation and Trotter order,
-and a ScarFinder routine for low-entanglement search inside the iMPS manifold.
+The package deliberately stays narrow. It does not implement finite-size DMRG
+or mixed boundary conditions, and it assumes the injective setting throughout
+canonicalization. If you need finite-size DMRG, a package such as `ITensors.jl`
+is a better starting point. What you do get here is a compact `iMPS` type,
+explicit control over truncation and Trotter order, and a ScarFinder routine
+for low-entanglement search inside the iMPS manifold. Optional Abelian-symmetric
+tensors (`:U1`, `:Z2`, ...) are supported via a TensorKit-backed extension — see
+the [Symmetric infinite MPS](@ref) page.
 
 ## Manual layout
 

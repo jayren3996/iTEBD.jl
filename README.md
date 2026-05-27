@@ -18,7 +18,7 @@
 
 `iTEBD.jl` targets the thermodynamic limit directly. Instead of running on a long finite chain, you specify a periodic unit cell and the package works with the resulting infinite matrix-product state. That makes it a natural fit when the quantity of interest (entanglement structure, bulk energy density, scar trajectories) is defined per unit cell rather than for a particular system size.
 
-The package stays narrow on purpose. It does not implement finite-size DMRG, mixed boundary conditions, or symmetric tensors, and it assumes the injective setting throughout canonicalization. If you need any of those, [`ITensors.jl`](https://github.com/ITensor/ITensors.jl) is a better starting point.
+The package stays narrow on purpose. It does not implement finite-size DMRG or mixed boundary conditions, and it assumes the injective setting throughout canonicalization. Optional Abelian-symmetric tensors (`:U1`, `:Z2`, …) are supported via a TensorKit-backed extension loaded with `using TensorKit`. If you need finite-size DMRG, [`ITensors.jl`](https://github.com/ITensor/ITensors.jl) is a better starting point.
 
 ## Installation
 
