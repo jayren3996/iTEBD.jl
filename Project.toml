@@ -18,7 +18,11 @@ TensorKit = "07d1fe3e-3e46-537d-9eac-e9e13d0d4cec"
 iTEBDTensorKitExt = "TensorKit"
 
 [compat]
+ITensorMPS = "0.3"
+ITensors = "0.7, 0.8"
+KrylovKit = "0.8, 0.9"
 TensorKit = "0.14, 0.15, 0.16"
+TensorOperations = "5"
 julia = "1.9"
 
 [extras]
