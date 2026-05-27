@@ -349,6 +349,16 @@ end
     @test isapprox(norm_before[1:n_keep], norm_after[1:n_keep]; atol=1e-9)
 end
 
+@testset "applygate! rejects return_stats=true" begin
+    # Dense applygate! returns (ψ, stats) on return_stats=true; symmetric path
+    # doesn't yet collect them. Silent acceptance would cause the base
+    # `_evolve_gate_sequence!` to destructure ψ itself and crash.
+    ψ = product_iMPS(:U1, [-1, 1], [1, -1])
+    P = codomain(ψ.Γ[1])[2]
+    Iop = id(ComplexF64, P ⊗ P)
+    @test_throws ArgumentError applygate!(ψ, Iop, 1, 2; return_stats=true)
+end
+
 @testset "applygate! normalizes periodic site indices" begin
     # On n=2 the labels (3, 2) and (1, 2) describe the same cut after periodic
     # reduction. The dense path normalizes via `_normalize_gate_sites`; the

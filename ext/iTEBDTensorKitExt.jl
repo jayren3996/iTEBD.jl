@@ -872,7 +872,15 @@ function applygate!(ψ::iMPS{<:AbstractTensorMap, <:DiagonalTensorMap},
                     cutoff::Real=iTEBD.SVDTOL,
                     svd_min::Union{Nothing,Real}=nothing,
                     renormalize::Bool=true,
+                    return_stats::Bool=false,
                     kwargs...)
+    # The dense path returns `(ψ, stats)` when `return_stats=true`; the
+    # symmetric path does not yet collect truncation diagnostics, so the
+    # base `_evolve_gate_sequence!` would silently destructure ψ and crash.
+    # Surface the limitation up front instead.
+    return_stats && throw(ArgumentError(
+        "v1 symmetric applygate! does not yet collect truncation stats; " *
+        "drop `return_stats=true` or use the dense backend."))
     # `evolve!` resolves user kwargs into `svd_min` before dispatching here, so
     # an explicit `svd_min` overrides the default `cutoff`. Direct callers may
     # still pass `cutoff` (or neither, for the default).
