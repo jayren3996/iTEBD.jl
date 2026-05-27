@@ -319,6 +319,11 @@ function _validate_iMPS_bonds(
             "left space of Γ[$(mod1(i + 1, n))] ($Vl_next); fluxes must close " *
             "around the unit cell"
         ))
+        λ_space = domain(λ[i])[1]
+        λ_space == Vr || throw(DimensionMismatch(
+            "SymmetricIMPS bond $i: space of λ[$i] ($λ_space) does not match the right " *
+            "virtual space of Γ[$i] ($Vr). The Schmidt-value graded space must equal " *
+            "the bond it sits on."))
     end
     return nothing
 end
@@ -487,15 +492,18 @@ function _block_sqrt(M::AbstractTensorMap)
 end
 
 # Block-wise pseudo-inverse square root: M^{-1/2}, zeroing eigenvalues below a
-# per-block tolerance derived from the largest eigenvalue magnitude.
-function _block_isqrt(M::AbstractTensorMap)
+# per-block tolerance. The tolerance threshold is `cutoff * max(|eigenvalues|)`
+# so that the user-supplied truncation cutoff is respected.
+function _block_isqrt(M::AbstractTensorMap; cutoff::Real=iTEBD.SVDTOL)
     out = similar(M)
     for (sector, blk) in blocks(M)
         H = (Matrix(blk) + Matrix(blk)') / 2
         F = eigen(Hermitian(H))
         evs = real.(F.values)
         scale = isempty(evs) ? 0.0 : maximum(abs, evs)
-        tol = sqrt(eps(Float64)) * max(scale, 1.0)
+        # Safety floor at eps(Float64) prevents inverting eigenvalues that are
+        # pure numerical noise (which would give inv(sqrt(noise)) ≈ ∞).
+        tol = max(Float64(cutoff), eps(Float64)) * max(scale, 1.0)
         invs = [v > tol ? inv(sqrt(v)) : 0.0 for v in evs]
         isq = F.vectors * Diagonal(invs) * F.vectors'
         copyto!(block(out, sector), isq)
@@ -531,12 +539,10 @@ Algorithm (injective setting):
 Assumptions: the unit cell is *injective* — the dominant eigenvalue of the
 transfer map is unique. For non-injective inputs (e.g. states with broken
 translation symmetry within the unit cell, or transfer maps with
-nearly-degenerate paired dominant eigenvalues), this routine may silently
-produce an arbitrary or empty Schmidt spectrum on one or more bonds. Always
-verify after canonicalisation by inspecting `schmidt_values(ψ, i)`. A future
-release will add non-injective / multi-block canonical form. For now, when
-the assumption is violated, a `@warn` is emitted from the asymmetric-
-eigenvalue check, and downstream evolution should not be trusted.
+nearly-degenerate paired dominant eigenvalues), this routine refuses to
+mutate the state and raises `ArgumentError` with diagnostics on the
+mismatched left/right transfer eigenvalues. A future release will add
+non-injective / multi-block canonical form.
 
 Keyword arguments:
 - `maxdim::Integer = MAXDIM` — Hard rank cap on each bond.
@@ -566,10 +572,17 @@ function canonical!(ψ::iMPS{<:AbstractTensorMap, <:DiagonalTensorMap};
     # than silently averaging and proceeding.
     λ_scale = max(abs(λ_r), abs(λ_l), 1.0)
     if abs(λ_r - λ_l) > sqrt(eps(Float64)) * λ_scale * 100
-        @warn "canonical!: asymmetric transfer eigenvalues (λ_r=$(λ_r), λ_l=$(λ_l)); " *
-              "the input may be non-injective. The injective canonicalisation path " *
-              "is unreliable here; consider seeding the random state differently or " *
-              "constructing a state in a fixed flux sector."
+        throw(ArgumentError(
+            "canonical!: asymmetric transfer eigenvalues (λ_r=$(λ_r), λ_l=$(λ_l)). " *
+            "The v1 symmetric canonical! only handles injective states; the input " *
+            "is likely non-injective (e.g. block-diagonal transfer with paired " *
+            "dominant eigenvalues, or broken translation symmetry within the unit " *
+            "cell). For this v1 release the routine refuses to proceed rather than " *
+            "silently produce a corrupted state. A future release will add " *
+            "non-injective / multi-block canonical form. Workarounds: (a) seed the " *
+            "random state differently; (b) construct the state directly in a fixed " *
+            "flux sector via product_iMPS; (c) bypass canonicalisation if you are " *
+            "OK with a non-canonical state for diagnostic purposes."))
     end
     λ_max = (real(λ_r) + real(λ_l)) / 2
 
@@ -585,7 +598,7 @@ function canonical!(ψ::iMPS{<:AbstractTensorMap, <:DiagonalTensorMap};
 
     # 2. Principal square roots (Hermitian, block-positive).
     X    = _block_sqrt(R)
-    Xinv = _block_isqrt(R)
+    Xinv = _block_isqrt(R; cutoff=cutoff)
     Y    = _block_sqrt(L)
 
     # 3. SVD of M = X · Y. The new Schmidt values on the wraparound bond are
@@ -676,7 +689,7 @@ function _split_unit_cell!(ψ::iMPS{<:AbstractTensorMap, <:DiagonalTensorMap},
 
     truncstrat = truncrank(Int(maxdim)) & trunctol(; atol=Float64(cutoff))
     λi = Λwrap            # previous Schmidt entering the leftmost site
-    λi_inv = _diag_inverse(λi)
+    λi_inv = _diag_inverse(λi; cutoff=cutoff)
     Ti = T
     for site in 1:(n - 1)
         # At iteration `site`, Ti has codomain (V_l_current, P_site, P_{site+1}, …, P_n)
@@ -713,7 +726,7 @@ function _split_unit_cell!(ψ::iMPS{<:AbstractTensorMap, <:DiagonalTensorMap},
             Ti_new = _absorb_diag_left_on_codomain(Vt_part, Λnew)
             Ti = Ti_new
             λi = Λnew
-            λi_inv = _diag_inverse(λi)
+            λi_inv = _diag_inverse(λi; cutoff=cutoff)
         else
             # Last iteration: do NOT left-mul by Λnew. The remaining Vt_part
             # becomes the stored B_n directly (it is right-canonical by virtue
@@ -772,13 +785,27 @@ function _absorb_diag_left_on_codomain(Vt::AbstractTensorMap, λ::AbstractTensor
 end
 
 # Helper: compute the pseudo-inverse of a DiagonalTensorMap (sector-wise).
-function _diag_inverse(λ::DiagonalTensorMap)
+# The threshold for zeroing small entries is `cutoff * max(|entries|)` so that
+# the user-supplied truncation cutoff is respected (rather than a hardcoded
+# sqrt(eps) ≈ 1.5e-8 that silently discards modes the user asked to keep).
+function _diag_inverse(λ::DiagonalTensorMap; cutoff::Real=iTEBD.SVDTOL)
     out = similar(λ)
+    # Compute the global max absolute value across all blocks for the threshold.
+    global_max = 0.0
+    for (_, blk) in blocks(λ)
+        for i in 1:size(blk, 1)
+            global_max = max(global_max, abs(blk[i, i]))
+        end
+    end
+    # Safety floor at eps(Float64) prevents inverting entries that are pure
+    # numerical noise (Schmidt values can have machine-precision-scale entries
+    # that should be treated as zero even when the user requests a very small cutoff).
+    tol = max(Float64(cutoff), eps(Float64)) * max(global_max, 1.0)
     for (sector, blk) in blocks(λ)
         out_blk = block(out, sector)
         for i in 1:size(blk, 1)
             v = blk[i, i]
-            inv_v = abs(v) > sqrt(eps(real(eltype(blk)))) ? inv(v) : zero(v)
+            inv_v = abs(v) > tol ? inv(v) : zero(v)
             out_blk[i, i] = inv_v
         end
     end
@@ -834,7 +861,7 @@ function applygate!(ψ::iMPS{<:AbstractTensorMap, <:DiagonalTensorMap},
     Γi  = ψ.Γ[i]
     Γj  = ψ.Γ[j]
     λL  = ψ.λ[mod1(i - 1, n)]   # Schmidt values to the LEFT of site i
-    λLi = _diag_inverse(λL)       # pseudo-inverse, safe for tiny entries
+    λLi = _diag_inverse(λL; cutoff=cutoff)  # pseudo-inverse, safe for tiny entries
 
     # iTEBD canonical convention (matching the dense tensor_decomp! convention):
     #   stored Γ[k] = λ[k-1]^{-1} · A[k] · λ[k]

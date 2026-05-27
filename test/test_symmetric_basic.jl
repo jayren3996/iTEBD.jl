@@ -177,6 +177,19 @@ end
     @test_throws DimensionMismatch iMPS([Γ1, Γ2], λ_dummy, 2)
 end
 
+@testset "λ-space mismatch is rejected" begin
+    P  = graded_space(:U1, 1=>1, -1=>1)
+    Va = graded_space(:U1, 0=>1, 2=>1)
+    Vb = graded_space(:U1, 1=>2)          # same total dim (2), different sectors
+    Γ  = [zeros(ComplexF64, Va ⊗ P ← Va) for _ in 1:2]
+    # λ[1] deliberately lives on Vb (wrong space) instead of Va.
+    λ  = [
+        DiagonalTensorMap(ones(Float64, 2), Vb),
+        DiagonalTensorMap(ones(Float64, 2), Va),
+    ]
+    @test_throws DimensionMismatch iMPS(Γ, λ, 2)
+end
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Chunk 5: Symmetric truncated SVD primitive and canonical!
 # ─────────────────────────────────────────────────────────────────────────────
@@ -201,12 +214,12 @@ end
 
 @testset "canonical! on symmetric iMPS" begin
     using Random
-    # Seed pinning is load-bearing here. The v1 symmetric canonical! works only
-    # for injective states. With this (P, V) choice, ~50% of random seeds land
-    # in a non-injective regime where the algorithm warns (via the asymmetric-
-    # transfer-eigenvalue check) and produces an unreliable result. Seed 2 is a
-    # known-good injective seed. A future chunk will add non-injective / multi-
-    # block canonical form to remove the seed dependence.
+    # Seed pinning is load-bearing here. The v1 symmetric canonical! now THROWS
+    # on non-injective inputs; we pin seed=2 here so the test exercises the
+    # supported injective path. With this (P, V) choice, ~50% of random seeds
+    # land in a non-injective regime where the algorithm raises ArgumentError.
+    # A future release will add non-injective / multi-block canonical form to
+    # remove the seed dependence.
     Random.seed!(2)
     P = graded_space(:U1, 1=>1, -1=>1)
     V = graded_space(:U1, 0=>1, 1=>1, -1=>1, 2=>1, -2=>1)
@@ -237,13 +250,13 @@ end
 
 @testset "canonical! on symmetric iMPS, n=1" begin
     using Random
-    # Seed pinning is load-bearing here. The v1 symmetric canonical! works only
-    # for injective states. For a single-site unit cell the transfer spectrum
-    # stays connected (consecutive integer charges), but a few seeds still hit
-    # Krylov sign-degeneracies that the asymmetric-transfer-eigenvalue check
-    # will warn about and that produce unreliable results. Seed 2 is a known-
-    # good injective seed. A future chunk will add non-injective / multi-block
-    # canonical form to remove the seed dependence.
+    # Seed pinning is load-bearing here. The v1 symmetric canonical! now THROWS
+    # on non-injective inputs; we pin seed=2 here so the test exercises the
+    # supported injective path. For a single-site unit cell the transfer
+    # spectrum stays connected (consecutive integer charges), but a few seeds
+    # still hit Krylov sign-degeneracies that trigger the non-injective throw.
+    # Seed 2 is a known-good injective seed. A future release will add
+    # non-injective / multi-block canonical form to remove the seed dependence.
     Random.seed!(2)
     P = graded_space(:U1, 1=>1, -1=>1)
     V = graded_space(:U1, 0=>2, 1=>2, -1=>2)
@@ -374,4 +387,35 @@ end
     for i in 1:ψ.n
         @test isapprox(sum(abs2, schmidt_values(ψ, i)), 1.0; atol=1e-8)
     end
+end
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Post-review polish tests (blocking fixes #1, #2, important fix #1)
+# ─────────────────────────────────────────────────────────────────────────────
+
+@testset "canonical! throws on non-injective input" begin
+    using Random
+    # Seeds 1, 3, 4, 5, 9 are known to land in the non-injective regime for
+    # this (P, V) configuration (asymmetric left/right transfer eigenvalues).
+    # The v1 canonical! now THROWS rather than silently corrupting the state.
+    Random.seed!(3)
+    P = graded_space(:U1, 1=>1, -1=>1)
+    V = graded_space(:U1, 0=>1, 1=>1, -1=>1, 2=>1, -2=>1)
+    ψ = rand_iMPS(P, V, 2)
+    @test_throws ArgumentError canonical!(ψ)
+end
+
+@testset "canonical! honours small cutoff" begin
+    using Random
+    # With the previous hardcoded sqrt(eps) ≈ 1.5e-8 threshold in _block_isqrt
+    # and _diag_inverse, a cutoff of 1e-14 was silently ignored. Now the helpers
+    # honour the user's value. We use the same (P, V, n=2, seed=2) as the main
+    # canonical! test (which is a known-injective configuration) to ensure
+    # the test exercises the canonical form rather than the non-injective throw.
+    Random.seed!(2)
+    P = graded_space(:U1, 1=>1, -1=>1)
+    V = graded_space(:U1, 0=>1, 1=>1, -1=>1, 2=>1, -2=>1)
+    ψ = rand_iMPS(P, V, 2)
+    canonical!(ψ; cutoff=1e-14)
+    @test isapprox(sum(abs2, schmidt_values(ψ, 1)), 1.0; atol=1e-9)
 end
