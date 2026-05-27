@@ -36,6 +36,7 @@ const TEST_GROUPS = Dict(
     ],
     "integration" => [
         "test_aklt_integration.jl",
+        "test_symmetric_heisenberg.jl",
     ],
 )
 
