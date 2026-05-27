@@ -12,6 +12,7 @@ import iTEBD: graded_space, spin_half_ops, schmidt_values
 import iTEBD: rand_iMPS, product_iMPS
 import iTEBD: iMPS, _validate_iMPS_bonds, _bond_dim
 import iTEBD: canonical!
+import iTEBD: _resolve_svd_min, _validate_truncation_args, adaptive_bonddim
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Chunk 3: Helper layer
@@ -856,10 +857,12 @@ Algorithm:
 4. Store `U` as `ψ.Γ[i]`, `S * Vt` as `ψ.Γ[j]`, `S` as `ψ.λ[i]`.
 
 Only nearest-neighbour gates (`j = mod1(i+1, ψ.n)`) are supported.
-The base `evolve!` routing resolves user kwargs (`cutoff`, `svd_min`) into a
-single `svd_min` floor before dispatching; this method honours that floor as
-the truncation cutoff. Other base kwargs (`mindim`, `truncerr`, `return_stats`)
-are accepted and silently ignored.
+The truncation kwargs match the dense path's contract: `cutoff` and
+`svd_min` are aliases for the singular-value floor (`_resolve_svd_min`
+forbids passing both); `mindim`/`truncerr` are accepted only at their
+default values (the v1 symmetric SVD primitive does not yet honour
+either), and `return_stats=true` is rejected because no stats are
+collected. Unknown kwargs raise `MethodError`.
 
 For wrap-around gates (gate spans the seam between site n and site 1), the
 state is automatically re-canonicalised after the gate to prevent
@@ -869,11 +872,12 @@ canonical-form drift across many evolution steps. This matches the dense
 function applygate!(ψ::iMPS{<:AbstractTensorMap, <:DiagonalTensorMap},
                     G::AbstractTensorMap, i::Integer, j::Integer;
                     maxdim::Integer=iTEBD.MAXDIM,
-                    cutoff::Real=iTEBD.SVDTOL,
+                    mindim::Integer=1,
+                    truncerr::Real=0.0,
+                    cutoff::Union{Nothing,Real}=nothing,
                     svd_min::Union{Nothing,Real}=nothing,
                     renormalize::Bool=true,
-                    return_stats::Bool=false,
-                    kwargs...)
+                    return_stats::Bool=false)
     # The dense path returns `(ψ, stats)` when `return_stats=true`; the
     # symmetric path does not yet collect truncation diagnostics, so the
     # base `_evolve_gate_sequence!` would silently destructure ψ and crash.
@@ -881,10 +885,19 @@ function applygate!(ψ::iMPS{<:AbstractTensorMap, <:DiagonalTensorMap},
     return_stats && throw(ArgumentError(
         "v1 symmetric applygate! does not yet collect truncation stats; " *
         "drop `return_stats=true` or use the dense backend."))
-    # `evolve!` resolves user kwargs into `svd_min` before dispatching here, so
-    # an explicit `svd_min` overrides the default `cutoff`. Direct callers may
-    # still pass `cutoff` (or neither, for the default).
-    effective_cutoff = svd_min === nothing ? Float64(cutoff) : Float64(svd_min)
+    # Mirror the dense applygate! validation: alias rule on cutoff/svd_min,
+    # finite/non-negative truncation knobs.
+    effective_cutoff = _resolve_svd_min(svd_min, cutoff)
+    _validate_truncation_args(maxdim, mindim, truncerr, effective_cutoff)
+    # The v1 symmetric SVD primitive does not yet honour these knobs; reject
+    # non-default values explicitly so callers don't get silently wrong
+    # truncation behaviour.
+    mindim == 1 || throw(ArgumentError(
+        "v1 symmetric applygate! does not yet honour mindim > 1 " *
+        "(got mindim=$mindim); pass mindim=1 or use the dense backend."))
+    iszero(truncerr) || throw(ArgumentError(
+        "v1 symmetric applygate! does not yet honour truncerr > 0 " *
+        "(got truncerr=$truncerr); pass truncerr=0 or use the dense backend."))
     # Match the dense applygate! convention: interpret raw `i, j` periodically
     # so callers can pass any integer label, then verify the pair is a
     # nearest-neighbour cut.

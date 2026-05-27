@@ -377,6 +377,32 @@ end
     @test_throws ArgumentError applygate!(ψ, Iop, 1, 2; return_stats=true)
 end
 
+@testset "applygate! validates truncation kwargs" begin
+    # The symmetric path used to accept `kwargs...` and silently drop
+    # `mindim`/`truncerr`, plus typo kwargs. Match the dense path's
+    # `_resolve_svd_min` / `_validate_truncation_args` contract.
+    ψ = product_iMPS(:U1, [-1, 1], [1, -1])
+    P = codomain(ψ.Γ[1])[2]
+    Iop = id(ComplexF64, P ⊗ P)
+
+    # cutoff and svd_min are aliases; supplying both is ambiguous.
+    @test_throws ArgumentError applygate!(ψ, Iop, 1, 2; cutoff=1e-10, svd_min=1e-10)
+
+    # mindim > 1 is not implemented in the v1 symmetric path.
+    @test_throws ArgumentError applygate!(ψ, Iop, 1, 2; mindim=2)
+
+    # truncerr > 0 likewise.
+    @test_throws ArgumentError applygate!(ψ, Iop, 1, 2; truncerr=1e-6)
+
+    # Negative / non-finite truncation knobs are rejected.
+    @test_throws ArgumentError applygate!(ψ, Iop, 1, 2; cutoff=-1.0)
+    @test_throws ArgumentError applygate!(ψ, Iop, 1, 2; svd_min=-1.0)
+    @test_throws ArgumentError applygate!(ψ, Iop, 1, 2; truncerr=-1e-6)
+
+    # Typo kwargs are caught because the `kwargs...` catch-all is gone.
+    @test_throws MethodError applygate!(ψ, Iop, 1, 2; typo_kw=true)
+end
+
 @testset "applygate! normalizes periodic site indices" begin
     # On n=2 the labels (3, 2) and (1, 2) describe the same cut after periodic
     # reduction. The dense path normalizes via `_normalize_gate_sites`; the
