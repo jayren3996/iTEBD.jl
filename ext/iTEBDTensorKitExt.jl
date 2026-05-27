@@ -10,7 +10,7 @@ using KrylovKit: eigsolve
 # to the compiler.
 import iTEBD: graded_space, spin_half_ops, schmidt_values
 import iTEBD: rand_iMPS, product_iMPS
-import iTEBD: iMPS, _validate_iMPS_bonds
+import iTEBD: iMPS, _validate_iMPS_bonds, _bond_dim
 import iTEBD: canonical!
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -833,10 +833,11 @@ end
 # Chunk 6: Symmetric applygate! for nearest-neighbour two-site gates
 # ─────────────────────────────────────────────────────────────────────────────
 
-# `_evolve_gate_sequence!` in Gate.jl calls `maximum(length, ψ.λ; init=mindim)`
-# to compute the current bond dimension. For SymmetricIMPS each λ[i] is a
-# DiagonalTensorMap, so we expose `length` as the total virtual dimension.
-Base.length(λ::DiagonalTensorMap) = dim(domain(λ)[1])
+# `_evolve_gate_sequence!` in Gate.jl asks each bond for its current dimension
+# via the internal `_bond_dim` accessor. For SymmetricIMPS each λ[i] is a
+# DiagonalTensorMap, so report the dimension of its bond space (summed across
+# sectors). Specialising this internal hook avoids piracy on `Base.length`.
+_bond_dim(λ::DiagonalTensorMap) = dim(domain(λ)[1])
 
 import iTEBD: applygate!
 

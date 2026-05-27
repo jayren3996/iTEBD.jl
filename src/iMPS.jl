@@ -97,6 +97,13 @@ end
 # error, surfaced loudly at the contraction site rather than silently here.
 _validate_iMPS_bonds(Γ, λ, n) = nothing
 
+# Internal accessor for "how many singular values does this bond carry?". Used
+# by adaptive-bond-dim logic in `_evolve_gate_sequence!`. Default delegates to
+# `length` (correct for the dense `Vector{<:Real}` backend); the TensorKit
+# extension specialises it for `DiagonalTensorMap` instead of pirating
+# `Base.length`.
+_bond_dim(λ) = length(λ)
+
 """
     DenseIMPS{T,S}
 

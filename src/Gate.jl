@@ -494,7 +494,7 @@ function _evolve_gate_sequence!(
     svd_floor = _resolve_svd_min(svd_min, cutoff)
     _validate_chi_policy(chi_policy)
     gate_updates = return_stats ? Any[] : nothing
-    χ = min(maxdim, max(mindim, maximum(length, ψ.λ; init=mindim)))
+    χ = min(maxdim, max(mindim, maximum(_bond_dim, ψ.λ; init=mindim)))
     for gate in gates
         G, i, j = gate
         if return_stats
