@@ -480,6 +480,36 @@ end
     end
 end
 
+@testset "adaptive_bonddim works on DiagonalTensorMap" begin
+    # `chi_policy=:adaptive` calls `adaptive_bonddim(χ, ψ.λ[bond]; …)` inside
+    # `_evolve_gate_sequence!`. Before the symmetric overload was added this
+    # crashed with `MethodError` because the dense definition requires
+    # `λ::AbstractVector`. The extension's specialisation flattens the
+    # per-sector diagonal and delegates to the dense routine.
+    P = graded_space(:U1, 1=>1, -1=>1)
+    V = graded_space(:U1, 0=>2, 2=>1, -2=>1)
+    Random.seed!(42)
+    ψ = rand_iMPS(P, V, 2)
+    canonical!(ψ)
+
+    # Direct call: same answer as flattened path.
+    flat = schmidt_values(ψ, 1)
+    direct = adaptive_bonddim(1, ψ.λ[1]; mindim=1, maxdim=16, q=1.0, alpha=0.1, cutoff=1e-12)
+    flatd  = adaptive_bonddim(1, flat;    mindim=1, maxdim=16, q=1.0, alpha=0.1, cutoff=1e-12)
+    @test direct == flatd
+
+    # End-to-end: evolve! with chi_policy=:adaptive runs without MethodError.
+    # Use a Néel product state so post-gate canonicalisation is deterministic
+    # (random states can give Krylov a near-degenerate transfer matrix to start
+    # from on the second canonical! call, an orthogonal pre-existing flake).
+    ψp = product_iMPS(:U1, [-1, 1], [1, -1])
+    Pp = codomain(ψp.Γ[1])[2]
+    Iop = id(ComplexF64, Pp ⊗ Pp)
+    gates = [(Iop, 1, 2), (Iop, 2, 1)]
+    evolve!(ψp, gates, 3; maxdim=8, chi_policy=:adaptive)
+    @test ψp.Γ[1] isa AbstractTensorMap
+end
+
 @testset "evolve! propagates cutoff to symmetric applygate!" begin
     # Build a Néel state and evolve with an entangling gate so the bond grows.
     # With a loose cutoff the truncation should drop modes; with a tight cutoff

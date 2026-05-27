@@ -170,6 +170,20 @@ function _flatten_diagonal_blocks(λ::DiagonalTensorMap)
     return out
 end
 
+# Adaptive bond-dim policy used by `_evolve_gate_sequence!` with
+# `chi_policy=:adaptive`. The dense routine takes `λ::AbstractVector`; for the
+# symmetric backend we flatten per-sector blocks and delegate so the user gets
+# the same intrinsic-rank estimate without having to extract the spectrum
+# themselves. Without this method the call site raised `MethodError` on the
+# `DiagonalTensorMap`.
+function adaptive_bonddim(
+    previous::Integer,
+    λ::DiagonalTensorMap;
+    kwargs...
+)
+    return adaptive_bonddim(previous, _flatten_diagonal_blocks(λ); kwargs...)
+end
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Chunk 4: Symmetric iMPS constructors + wraparound bond-space check
 # ─────────────────────────────────────────────────────────────────────────────
