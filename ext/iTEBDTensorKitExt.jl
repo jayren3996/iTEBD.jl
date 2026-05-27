@@ -876,9 +876,14 @@ function applygate!(ψ::iMPS{<:AbstractTensorMap, <:DiagonalTensorMap},
     # an explicit `svd_min` overrides the default `cutoff`. Direct callers may
     # still pass `cutoff` (or neither, for the default).
     effective_cutoff = svd_min === nothing ? Float64(cutoff) : Float64(svd_min)
+    # Match the dense applygate! convention: interpret raw `i, j` periodically
+    # so callers can pass any integer label, then verify the pair is a
+    # nearest-neighbour cut.
+    ψ.n > 0 || throw(ArgumentError("unit cell must contain at least one site"))
+    i, j = mod(i - 1, ψ.n) + 1, mod(j - 1, ψ.n) + 1
     j == mod1(i + 1, ψ.n) || throw(ArgumentError(
         "v1 symmetric applygate! supports nearest-neighbour two-site gates only " *
-        "(got i=$i, j=$j on n=$(ψ.n))"))
+        "(got i=$i, j=$j on n=$(ψ.n) after periodic normalization)"))
 
     n   = ψ.n
     Γi  = ψ.Γ[i]

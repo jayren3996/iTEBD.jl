@@ -349,6 +349,20 @@ end
     @test isapprox(norm_before[1:n_keep], norm_after[1:n_keep]; atol=1e-9)
 end
 
+@testset "applygate! normalizes periodic site indices" begin
+    # On n=2 the labels (3, 2) and (1, 2) describe the same cut after periodic
+    # reduction. The dense path normalizes via `_normalize_gate_sites`; the
+    # symmetric path should match. Before this fix the out-of-range label
+    # crashed at `ψ.Γ[3]`.
+    ψ = product_iMPS(:U1, [-1, 1], [1, -1])
+    P = codomain(ψ.Γ[1])[2]
+    Iop = id(ComplexF64, P ⊗ P)
+    applygate!(ψ, Iop, 3, 2)            # = applygate!(ψ, Iop, 1, 2) after normalize
+    @test ψ.n == 2
+    # Non-nearest-neighbour pairs are still rejected after normalization.
+    @test_throws ArgumentError applygate!(ψ, Iop, 1, 1)
+end
+
 @testset "evolve! routes through symmetric applygate!" begin
     using Random
     Random.seed!(2)
