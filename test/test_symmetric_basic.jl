@@ -700,3 +700,75 @@ end
     # user-supplied 1e-14 in effect, the kept entries must all clear it.
     @test all(>(1e-14), vals)
 end
+
+@testset "_diag_inverse cutoff floor" begin
+    # Internal-helper unit test: a Schmidt block with one mid-range value and
+    # one machine-noise-scale value must invert the first and zero the second
+    # exactly when the user's cutoff is above the noise but below the signal.
+    # Tightening the cutoff below the noise should then invert both.
+    V = graded_space(:U1, 0=>2)              # one block of size 2
+    λ = DiagonalTensorMap([1.0, 1e-10], V)
+
+    # cutoff well above 1e-10 → noise mode zeroed, signal mode inverted.
+    inv_clip = _TKExt._diag_inverse(λ; cutoff=1e-8)
+    vals_clip = [v for (_, blk) in blocks(inv_clip) for v in diag(blk)]
+    @test sort(real.(vals_clip); rev=true) ≈ [1.0, 0.0] atol=1e-12
+
+    # cutoff well below 1e-10 → both modes inverted (the noise becomes 1e10).
+    inv_keep = _TKExt._diag_inverse(λ; cutoff=1e-14)
+    vals_keep = sort([real(v) for (_, blk) in blocks(inv_keep) for v in diag(blk)]; rev=true)
+    @test vals_keep[1] ≈ 1e10 rtol=1e-6
+    @test vals_keep[2] ≈ 1.0  rtol=1e-12
+
+    # A pure-zero entry is always zeroed (never produces Inf).
+    λ_zero = DiagonalTensorMap([1.0, 0.0], V)
+    inv_zero = _TKExt._diag_inverse(λ_zero; cutoff=1e-14)
+    vals_zero = sort([real(v) for (_, blk) in blocks(inv_zero) for v in diag(blk)]; rev=true)
+    @test vals_zero == [1.0, 0.0]
+end
+
+@testset "non-identity Z2 gate preserves parity and grows both sectors" begin
+    # Apply a parity-preserving rotation in the (|00>, |11>) subspace to a
+    # Z2 product state. Before the gate, every bond sits in a single sector;
+    # after the rotation the bond must carry both Z2 sectors (since
+    # cos|00>+sin|11> Schmidt-decomposes into one even-parity and one
+    # odd-parity left/right piece). Verifies that the Z2-graded gate is
+    # actually moving weight between blocks, not silently truncating one.
+    P = graded_space(:Z2, 0=>1, 1=>1)
+
+    # Build the parity-preserving rotation: identity on the odd (parity-1)
+    # block, π/4 rotation in the even (parity-0) block mixing |00> ↔ |11>.
+    G = zeros(ComplexF64, (P ⊗ P) ← (P ⊗ P))
+    θ = π/4
+    B0 = block(G, Z2Irrep(0))
+    B0[1, 1] =  cos(θ); B0[1, 2] = -sin(θ)
+    B0[2, 1] =  sin(θ); B0[2, 2] =  cos(θ)
+    B1 = block(G, Z2Irrep(1))
+    B1[1, 1] = 1.0
+    B1[2, 2] = 1.0
+
+    # Initial Z2 product state [0, 0]: every bond has the trivial Z2 grading,
+    # carrying only sector 0.
+    ψ = product_iMPS(:Z2, [0, 1], [0, 0])
+    @test sectortype(domain(ψ.Γ[1])[1]) == Z2Irrep
+    bond_sectors_before = collect(sectors(domain(ψ.Γ[1])[1]))
+    @test length(bond_sectors_before) == 1
+
+    # Apply the non-identity gate.
+    applygate!(ψ, G, 1, 2; maxdim=4)
+
+    # The post-gate bond between sites 1 and 2 must carry both Z2 sectors —
+    # the rotation entangled the parity-0 subspace across the cut, leaving a
+    # non-trivial dim ≥ 1 in each sector.
+    Vbond = domain(ψ.Γ[1])[1]
+    sect_after = Dict(s => dim(Vbond, s) for s in sectors(Vbond))
+    @test haskey(sect_after, Z2Irrep(0)) && sect_after[Z2Irrep(0)] >= 1
+    @test haskey(sect_after, Z2Irrep(1)) && sect_after[Z2Irrep(1)] >= 1
+
+    # Schmidt spectrum stays a probability distribution (renormalized=true).
+    vals = schmidt_values(ψ, 1)
+    @test isapprox(sum(abs2, vals), 1.0; atol=1e-10)
+    # And the two retained Schmidt values are exactly the rotation's |cos θ|,
+    # |sin θ| (the simplest case where we know the answer analytically).
+    @test sort(vals; rev=true) ≈ sort([cos(θ), sin(θ)]; rev=true) atol=1e-10
+end
