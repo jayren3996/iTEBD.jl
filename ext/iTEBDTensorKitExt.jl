@@ -321,6 +321,37 @@ function _validate_iMPS_bonds(
     return nothing
 end
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Chunk 5: Symmetric truncated SVD primitive
+# ─────────────────────────────────────────────────────────────────────────────
+
+"""
+    _symmetric_tsvd(A; maxdim, cutoff)
+
+Truncated SVD of a four-leg symmetric block tensor `A` with codomain shape
+`V_left ⊗ P_1 ⊗ P_2` and domain shape `V_right`. The split happens at the
+canonical "two-site" axis: the second physical leg and the right virtual leg
+move to the domain side, while `V_left` and the first physical leg stay in
+the codomain. Returns `(U, S, Vt, info)` where:
+
+- `U` carries the left bond and the first physical leg (`(V_left, P_1) ← bond`).
+- `S::DiagonalTensorMap` holds the truncated singular values on the new bond.
+- `Vt` carries the second physical leg and the right virtual leg.
+- `info` is TensorKit/MatrixAlgebraKit's truncation diagnostic (a real number
+  reporting the discarded weight) — used by callers for sanity checks.
+
+In TensorKit 0.16 the truncated SVD is `svd_trunc!`; the truncation policy is
+expressed via `truncrank(maxdim) & trunctol(; atol=cutoff)`.
+"""
+function _symmetric_tsvd(A::AbstractTensorMap;
+                         maxdim::Integer=iTEBD.MAXDIM,
+                         cutoff::Real=iTEBD.SVDTOL)
+    # Repartition: codomain (V_left, P_1), domain (P_2, V_right).
+    B = permute(A, ((1, 2), (3, 4)))
+    strategy = truncrank(Int(maxdim)) & trunctol(; atol=Float64(cutoff))
+    return svd_trunc!(B; trunc=strategy)
+end
+
 # Remaining method bodies are populated by subsequent chunks:
 #   Chunks 5-7 — canonical!, applygate!, expect, energy_density, ent_S
 

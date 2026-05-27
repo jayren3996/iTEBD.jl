@@ -7,6 +7,10 @@ using TensorKit: U1Irrep, Z2Irrep, ZNIrrep, Vect, dim, block, space, id,
                  ComplexSpace, sectortype, sectors, domain, codomain,
                  AbstractTensorMap, DiagonalTensorMap, ←, ⊗
 
+# Symbol-table reach into the loaded extension for internal helpers.
+const _TKExt = Base.get_extension(iTEBD, :iTEBDTensorKitExt)
+schmidt_values_from_S(S::DiagonalTensorMap) = _TKExt._flatten_diagonal_blocks(S)
+
 @testset "graded_space" begin
     P = graded_space(:U1, 0=>2, 1=>1, -1=>1)
     @test P isa Vect[U1Irrep]
@@ -169,4 +173,26 @@ end
         DiagonalTensorMap(ones(Float64, 1), Vb),
     ]
     @test_throws DimensionMismatch iMPS([Γ1, Γ2], λ_dummy, 2)
+end
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Chunk 5: Symmetric truncated SVD primitive
+# ─────────────────────────────────────────────────────────────────────────────
+
+@testset "_symmetric_tsvd preserves blocks" begin
+    # Two-site block: V_left ⊗ P_1 ⊗ P_2 ← V_right. With P = (±1) the combined
+    # two-site charge shift is 0 or ±2, which matches the chosen V sectors.
+    P = graded_space(:U1, 1=>1, -1=>1)
+    V = graded_space(:U1, 0=>2, 2=>1, -2=>1)
+    A = randn(ComplexF64, V ⊗ P ⊗ P ← V)
+    U, S, Vt, info = _TKExt._symmetric_tsvd(A; maxdim=4, cutoff=1e-12)
+    @test S isa DiagonalTensorMap
+    # The middle bond should match between U and S, and between S and Vt.
+    @test domain(U)[1] == domain(S)[1]
+    @test codomain(S)[1] == codomain(Vt)[1]
+    # The block should have nonzero values.
+    @test sum(abs2, schmidt_values_from_S(S)) > 0
+    # info is TensorKit's (MatrixAlgebraKit's) truncation diagnostic — a real
+    # truncation-error scalar in TK 0.16.
+    @test info isa Real
 end
