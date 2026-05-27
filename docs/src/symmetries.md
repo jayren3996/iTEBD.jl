@@ -108,7 +108,9 @@ energy_density(ψ, h)
 ```
 
 ```@example xxz
-# Sector-resolved Schmidt spectrum
+# Schmidt spectrum on bond 1 — `schmidt_values` flattens all sectors
+# into a single descending-sorted Vector{Float64}. To inspect the
+# per-sector blocks instead, iterate `blocks(ψ.λ[1])` directly.
 schmidt_values(ψ, 1)
 ```
 

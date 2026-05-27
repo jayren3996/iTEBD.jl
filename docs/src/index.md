@@ -85,7 +85,9 @@ this representation.
 
 `iTEBD.jl` is intentionally direct. You specify the unit cell, the local
 operators, and the truncation settings (`maxdim`, `cutoff`) explicitly. There
-is no automatic Hamiltonian builder, no symmetry sectors, and no abelian or
-non-abelian quantum-number bookkeeping. That keeps the package small enough to
-read end-to-end and flexible for exploratory tensor-network work and custom
+is no automatic Hamiltonian builder, no DMRG, and no non-Abelian
+quantum-number bookkeeping. Optional Abelian-symmetric tensors (U(1), Z_N,
+products) are available through the TensorKit-backed extension on the
+[Symmetric infinite MPS](@ref) page. That keeps the core small enough to read
+end-to-end and flexible for exploratory tensor-network work and custom
 ScarFinder protocols.
