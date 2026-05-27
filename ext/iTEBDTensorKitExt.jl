@@ -838,9 +838,10 @@ Algorithm:
 4. Store `U` as `ψ.Γ[i]`, `S * Vt` as `ψ.Γ[j]`, `S` as `ψ.λ[i]`.
 
 Only nearest-neighbour gates (`j = mod1(i+1, ψ.n)`) are supported.
-Extra keyword arguments (`mindim`, `truncerr`, `svd_min`, `return_stats`, etc.)
-from the base `evolve!` routing are accepted and silently ignored so that
-dispatch through `_evolve_gate_sequence!` works without modification.
+The base `evolve!` routing resolves user kwargs (`cutoff`, `svd_min`) into a
+single `svd_min` floor before dispatching; this method honours that floor as
+the truncation cutoff. Other base kwargs (`mindim`, `truncerr`, `return_stats`)
+are accepted and silently ignored.
 
 For wrap-around gates (gate spans the seam between site n and site 1), the
 state is automatically re-canonicalised after the gate to prevent
@@ -851,8 +852,13 @@ function applygate!(ψ::iMPS{<:AbstractTensorMap, <:DiagonalTensorMap},
                     G::AbstractTensorMap, i::Integer, j::Integer;
                     maxdim::Integer=iTEBD.MAXDIM,
                     cutoff::Real=iTEBD.SVDTOL,
+                    svd_min::Union{Nothing,Real}=nothing,
                     renormalize::Bool=true,
                     kwargs...)
+    # `evolve!` resolves user kwargs into `svd_min` before dispatching here, so
+    # an explicit `svd_min` overrides the default `cutoff`. Direct callers may
+    # still pass `cutoff` (or neither, for the default).
+    effective_cutoff = svd_min === nothing ? Float64(cutoff) : Float64(svd_min)
     j == mod1(i + 1, ψ.n) || throw(ArgumentError(
         "v1 symmetric applygate! supports nearest-neighbour two-site gates only " *
         "(got i=$i, j=$j on n=$(ψ.n))"))
@@ -861,7 +867,7 @@ function applygate!(ψ::iMPS{<:AbstractTensorMap, <:DiagonalTensorMap},
     Γi  = ψ.Γ[i]
     Γj  = ψ.Γ[j]
     λL  = ψ.λ[mod1(i - 1, n)]   # Schmidt values to the LEFT of site i
-    λLi = _diag_inverse(λL; cutoff=cutoff)  # pseudo-inverse, safe for tiny entries
+    λLi = _diag_inverse(λL; cutoff=effective_cutoff)  # pseudo-inverse, safe for tiny entries
 
     # iTEBD canonical convention (matching the dense tensor_decomp! convention):
     #   stored Γ[k] = λ[k-1]^{-1} · A[k] · λ[k]
@@ -885,7 +891,7 @@ function applygate!(ψ::iMPS{<:AbstractTensorMap, <:DiagonalTensorMap},
     @tensor B′[a, s, t; c] := G[s, t; u, v] * B[a, u, v; c]
 
     # Step 4: SVD with (V_l, P1) | (P2, V_r) cut.
-    U, S, Vt, _ = _symmetric_tsvd(B′; maxdim=maxdim, cutoff=cutoff)
+    U, S, Vt, _ = _symmetric_tsvd(B′; maxdim=maxdim, cutoff=effective_cutoff)
 
     if renormalize
         nrm = norm(S)
@@ -919,7 +925,7 @@ function applygate!(ψ::iMPS{<:AbstractTensorMap, <:DiagonalTensorMap},
     # the state is effectively rank-0 on that sector and canonical! would be
     # a no-op anyway.
     if j < i && all(k -> dim(domain(ψ.Γ[k])[1]) > 0, 1:ψ.n)
-        canonical!(ψ; maxdim=maxdim, cutoff=cutoff, renormalize=renormalize)
+        canonical!(ψ; maxdim=maxdim, cutoff=effective_cutoff, renormalize=renormalize)
     end
 
     return ψ

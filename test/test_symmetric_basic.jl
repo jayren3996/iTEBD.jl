@@ -313,6 +313,28 @@ end
     @test ψ.λ[1] isa DiagonalTensorMap
 end
 
+@testset "evolve! propagates cutoff to symmetric applygate!" begin
+    # Build a Néel state and evolve with an entangling gate so the bond grows.
+    # With a loose cutoff the truncation should drop modes; with a tight cutoff
+    # all modes are kept. Comparing the two bond dimensions verifies that the
+    # base `evolve!` cutoff actually reaches the symmetric SVD.
+    Sz, SzSz, SpSm, SmSp = spin_half_ops(:U1)
+    h = SzSz + 0.5 * (SpSm + SmSp)
+    dt = 0.1
+    gate = exp(-dt * h)
+    gates = [(gate, 1, 2), (gate, 2, 1)]
+
+    ψ_loose = product_iMPS(:U1, [-1, 1], [1, -1])
+    evolve!(ψ_loose, gates, 5; maxdim=64, cutoff=0.5)
+
+    ψ_tight = product_iMPS(:U1, [-1, 1], [1, -1])
+    evolve!(ψ_tight, gates, 5; maxdim=64, cutoff=1e-14)
+
+    χ_loose = sum(dim(domain(λ)[1]) for λ in ψ_loose.λ)
+    χ_tight = sum(dim(domain(λ)[1]) for λ in ψ_tight.λ)
+    @test χ_loose < χ_tight
+end
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Chunk 7: Symmetric observables
 # ─────────────────────────────────────────────────────────────────────────────
