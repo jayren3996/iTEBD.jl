@@ -331,6 +331,24 @@ function _validate_iMPS_bonds(
             "SymmetricIMPS bond $i: space of λ[$i] ($λ_space) does not match the right " *
             "virtual space of Γ[$i] ($Vr). The Schmidt-value graded space must equal " *
             "the bond it sits on."))
+        # Per-block value check, mirroring the dense path's finite/non-negative
+        # guard. A NaN or negative Schmidt singular value would silently corrupt
+        # every downstream contraction (the pseudo-inverse `_diag_inverse` would
+        # produce 0/0 or sign-flipped weights). Reject up front.
+        any_nonzero = false
+        for (sector, blk) in blocks(λ[i])
+            for v in diag(blk)
+                isfinite(v) || throw(ArgumentError(
+                    "SymmetricIMPS bond $i: λ[$i] block $sector contains non-finite value $v"))
+                v >= 0 || throw(ArgumentError(
+                    "SymmetricIMPS bond $i: λ[$i] block $sector contains negative value $v " *
+                    "(Schmidt singular values must be non-negative)"))
+                v > 0 && (any_nonzero = true)
+            end
+        end
+        any_nonzero || throw(ArgumentError(
+            "SymmetricIMPS bond $i: λ[$i] is identically zero across all sectors " *
+            "(would yield 0/0 in the pseudo-inverse used by applygate!)"))
     end
     return nothing
 end

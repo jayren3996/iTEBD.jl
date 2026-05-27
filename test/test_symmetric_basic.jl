@@ -220,6 +220,36 @@ end
     @test_throws DimensionMismatch iMPS(Γ, λ, 2)
 end
 
+@testset "symmetric λ value validation rejects NaN/Inf/negative/zero" begin
+    # `_validate_iMPS_bonds` previously checked only graded-space matching, so a
+    # state with NaN or Inf in a Schmidt block would construct silently and
+    # then quietly poison every downstream contraction. Mirror the dense path's
+    # finite / non-negative / non-zero-norm check on each block's diagonal.
+    P  = graded_space(:U1, 1=>1, -1=>1)
+    Va = graded_space(:U1, 0=>1)
+    Γ  = [zeros(ComplexF64, Va ⊗ P ← Va) for _ in 1:2]
+
+    # NaN value
+    λ_nan = [DiagonalTensorMap([NaN], Va), DiagonalTensorMap([1.0], Va)]
+    @test_throws ArgumentError iMPS(Γ, λ_nan, 2)
+
+    # +Inf value
+    λ_inf = [DiagonalTensorMap([Inf], Va), DiagonalTensorMap([1.0], Va)]
+    @test_throws ArgumentError iMPS(Γ, λ_inf, 2)
+
+    # Negative value (Schmidt singular values must be ≥ 0)
+    λ_neg = [DiagonalTensorMap([-1.0], Va), DiagonalTensorMap([1.0], Va)]
+    @test_throws ArgumentError iMPS(Γ, λ_neg, 2)
+
+    # All-zero bond (degenerate, would produce 0/0 in pseudo-inverse)
+    λ_zero = [DiagonalTensorMap([0.0], Va), DiagonalTensorMap([1.0], Va)]
+    @test_throws ArgumentError iMPS(Γ, λ_zero, 2)
+
+    # Sanity: a valid bond still constructs.
+    λ_ok = [DiagonalTensorMap([1.0], Va), DiagonalTensorMap([1.0], Va)]
+    @test iMPS(Γ, λ_ok, 2) isa iMPS
+end
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Chunk 5: Symmetric truncated SVD primitive and canonical!
 # ─────────────────────────────────────────────────────────────────────────────
