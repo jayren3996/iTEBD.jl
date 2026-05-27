@@ -137,3 +137,11 @@ For the iTEBD algorithm and Schmidt canonical form, the standard references are:
   326, 96-192 (2011).
 
 Full signatures for the constructors and canonicalization routines are on the [API Reference](api.md) page.
+
+## Symmetric variant
+
+If your model conserves `Sz`, particle number, parity, or any Abelian
+combination of those, the same `iMPS` API works on top of an optional
+[TensorKit.jl](https://github.com/Jutho/TensorKit.jl)-backed symmetric
+infrastructure. See [Symmetric infinite MPS](symmetries.md) for a
+walkthrough that explains charges, flux, and arrow conventions from zero.

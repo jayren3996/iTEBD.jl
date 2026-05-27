@@ -17,6 +17,7 @@ makedocs(;
         "Guide" => [
             "Getting Started" => "getting-started.md",
             "States and Canonical Form" => "imps.md",
+            "Symmetric MPS" => "symmetries.md",
             "Time Evolution" => "time-evolution.md",
             "Observables" => "observables.md",
             "ScarFinder Workflow" => "scarfinder.md",
