@@ -38,29 +38,24 @@ similarly for `-1=>1`.
 
 ## Flux
 
-> **What is the "flux" of a tensor?**
->
-> Every leg of a symmetric tensor carries a charge label on each of its
-> basis states. When you contract two legs together, the charges on the
-> contracted basis states must match — otherwise the matrix element is zero
-> by symmetry. The *flux* of a tensor is the **net charge it carries
-> between its incoming and outgoing legs**: how much charge goes *in* on
-> one side minus how much goes *out* on the other.
->
-> A tensor with **flux = 0** is the most common case — it neither creates
-> nor destroys charge. Examples: the identity, a U(1)-symmetric Hamiltonian
-> density `Sz⊗Sz`, an MPS tensor at the ground state of an `Sz`-conserving
-> model.
->
-> A tensor with **flux ≠ 0** *moves* charge. `S+` has flux `+2` (in our
-> `2*Sz` convention) because it raises spin. A flux-`q` MPS tensor inserts
-> `q` units of total `Sz` at that site.
->
-> In `iTEBD.jl`, when you build an iMPS in a fixed-`Sz` sector you set
-> every MPS tensor to flux=0, and the wraparound bond closes onto itself
-> with consistent charges. If you wanted to study a state with a single
-> magnon (one extra `Sz = +1`), you would put one flux-`+2` site somewhere
-> in the unit cell.
+Every symmetric tensor has a *flux*: the net charge it adds (or removes) to a
+state when it acts. For Abelian symmetries the flux is a single integer (or
+tuple, for product symmetries).
+
+The intuition:
+
+- **Flux = 0** — the tensor doesn't move charge. Most operators you care
+  about have flux 0: the identity, projectors, conserved quantities like
+  `Sz` or particle number, Hamiltonian densities, and the MPS tensors of a
+  state in a fixed charge sector.
+- **Flux ≠ 0** — the tensor moves charge by that amount. `S+` adds +2 to
+  `Sz` (in our `2·Sz` integer convention) so it has flux **+2**. `S-` has
+  flux **−2**.
+
+When you multiply or contract two symmetric tensors, the flux must "match
+up" the way charges do on the contracted legs — otherwise the result is
+zero or TensorKit raises a `SpaceMismatch` error. Adding two tensors with
+different fluxes is also forbidden.
 
 Worked example. With `Sz, SzSz, SpSm, SmSp = spin_half_ops(:U1)`:
 
@@ -71,42 +66,21 @@ Worked example. With `Sz, SzSz, SpSm, SmSp = spin_half_ops(:U1)`:
 | `SpSm`     | 0  | composite: `+2` on site 1 cancels `-2` on site 2 |
 | `SmSp`     | 0  | symmetric to above |
 
-Note: `iTEBD.jl`'s `spin_half_ops(:U1)` deliberately returns the
-pre-assembled flux-0 two-site terms `SzSz`, `SpSm`, `SmSp` rather than the
-individual `S+` and `S-` operators. The individual operators are non-zero
-flux and cannot be directly added in the symmetric tensor framework
-without sided-operator machinery; the pre-assembled two-site forms close
-the flux locally and can be combined and added freely.
+**Practical consequence for `iTEBD.jl`:** the two-site Hamiltonian density
+`h = Sz⊗Sz + (1/2)(S+⊗S- + S-⊗S+)` is meaningful because every term has
+total flux 0: `Sz⊗Sz` is two flux-0 operators on adjacent sites; `S+⊗S-`
+pairs a +2 with a −2, summing to 0; same for `S-⊗S+`. `iTEBD.jl`'s
+`spin_half_ops(:U1)` returns these pre-assembled two-site terms
+(`SzSz`, `SpSm`, `SmSp`) so you can add them and `exp` them freely. The
+individual single-site `S+` and `S-` are not returned because composing
+them naively (`S+ ⊗ S-` as a four-leg operator) requires extra "sided
+operator" machinery that lives outside the v1 helper layer.
 
-## Arrow convention on diagrams
-
-> **Arrow convention.** Every leg in our diagrams has an arrow.
->
-> - An arrow pointing **into** the tensor means that leg's charges are
->   read *as given*.
-> - An arrow pointing **out** of the tensor means that leg's charges are
->   read *negated* (mathematically: this leg lives in the dual space).
->
-> **Why this matters.** When you connect two legs together, the arrows
-> have to be **consistent**: one arrow leaves one tensor, the other arrow
-> enters the next tensor. (Connecting "out" to "out" or "in" to "in"
-> would sum charges that should subtract — TensorKit raises an error.)
->
-> **The standard MPS convention used in this package:** physical legs
-> point *out* (kets), bonds point *right* (left bond into the tensor,
-> right bond out of it). The flux equation reads
-> `(in charges) − (out charges) = flux`.
-
-```
-       P↑ (physical, out)
-        │
-        ▼
-   ───►─[ Γ_i ]─►───
-   V_left (in)     V_right (out)
-
-   flux(Γ_i) = (charges into Γ_i) − (charges out of Γ_i)
-             = V_left_charge − V_right_charge − P_charge
-```
+If you want to dig into how TensorKit represents flux internally — the
+codomain/domain split, dual spaces, arrows on diagrams — see the
+[TensorKit manual](https://quantumkithub.github.io/TensorKit.jl/stable/man/sectors/).
+For most users of this package, "operators have a flux; flux-0 things
+compose and add cleanly" is all you need to know.
 
 ## End-to-end walkthrough: spin-1/2 XXZ in the Sz=0 sector
 
@@ -146,9 +120,11 @@ schmidt_values(ψ, 1)
   extension.
 - `Argument N must be ≥ 2` in `graded_space(:ZN, N, …)` — Z_1 is trivial;
   use `:Trivial` instead.
-- `canonical!: asymmetric transfer eigenvalues (λ_r=..., λ_l=...)` — your
-  state is in a non-injective regime that the v1 symmetric `canonical!`
-  doesn't handle. Try a different random seed or initial state.
+- `ArgumentError: canonical!: asymmetric transfer eigenvalues (λ_r=..., λ_l=...)` —
+  your state is in a non-injective regime that the v1 symmetric `canonical!`
+  refuses to handle (to avoid silently producing a corrupted state). Try a
+  different random seed or construct the state in a fixed flux sector via
+  `product_iMPS`.
 
 ## See also
 
