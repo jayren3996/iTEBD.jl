@@ -84,7 +84,7 @@ compose and add cleanly" is all you need to know.
 
 ## End-to-end walkthrough: spin-1/2 XXZ in the Sz=0 sector
 
-```julia
+```@example xxz
 using iTEBD, TensorKit
 
 # Build the U(1)-symmetric spin-1/2 operators (pre-assembled two-site forms)
@@ -96,14 +96,18 @@ h = SzSz + 0.5 * (SpSm + SmSp)
 # Néel initial state in the Sz=0 sector
 ψ = product_iMPS(:U1, [-1, 1], [1, -1])
 
-# Imaginary-time iTEBD, two-site Trotter
+# Imaginary-time iTEBD, two-site Trotter. The full converged run uses ~400
+# steps; here we keep it short so docs build quickly.
 dt = 0.05
 gates = [(exp(-dt * h), 1, 2), (exp(-dt * h), 2, 1)]
-evolve!(ψ, gates, 400; maxdim=32, cutoff=1e-10)
+evolve!(ψ, gates, 60; maxdim=16, cutoff=1e-10)
 
-# Energy density approaches the Bethe-ansatz value 1/4 - log(2) ≈ -0.4431
+# Energy density (a full 400-step run converges to the Bethe-ansatz value
+# 1/4 - log(2) ≈ -0.4431).
 energy_density(ψ, h)
+```
 
+```@example xxz
 # Sector-resolved Schmidt spectrum
 schmidt_values(ψ, 1)
 ```
