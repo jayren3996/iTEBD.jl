@@ -825,21 +825,34 @@ function applygate!(ψ::iMPS{<:AbstractTensorMap, <:DiagonalTensorMap},
         "v1 symmetric applygate! supports nearest-neighbour two-site gates only " *
         "(got i=$i, j=$j on n=$(ψ.n))"))
 
-    Γi = ψ.Γ[i]
-    Γj = ψ.Γ[j]
+    n   = ψ.n
+    Γi  = ψ.Γ[i]
+    Γj  = ψ.Γ[j]
+    λL  = ψ.λ[mod1(i - 1, n)]   # Schmidt values to the LEFT of site i
+    λLi = _diag_inverse(λL)       # pseudo-inverse, safe for tiny entries
 
-    # Step 1: group the two-site block.
-    # Γi has codomain (V_l, P), domain (V_mid).
-    # Γj has codomain (V_mid, P), domain (V_r).
-    # B has codomain (V_l, P1, P2), domain (V_r).
-    @tensor B[a, s, t; c] := Γi[a, s; m] * Γj[m, t; c]
+    # iTEBD canonical convention (matching the dense tensor_decomp! convention):
+    #   stored Γ[k] = λ[k-1]^{-1} · A[k] · λ[k]
+    # so the physical B-tensor is λ[k-1] · Γ[k] = A[k] · λ[k].
+    #
+    # Two-site B-block: λL · Γi · Γj = A[i] · A[j] · λ[j]
+    # (λ[i] factors cancel: Γi has λ[i] absorbed, Γj has λ[i]^{-1} on the left)
+    #
+    # Gate application follows the dense tensor_applygate! flow:
+    #   1. Absorb λL into Γi to form B[i] = λL · Γi
+    #   2. Group: B = B[i] · Γj = λL · Γi · Γj  (the correct two-site state)
+    #   3. Apply gate: B′ = G · B
+    #   4. SVD: B′ = U · S · Vt
+    #   5. Store Γ[i]_new = λL^{-1} · U · S,  λ[i]_new = S,  Γ[j]_new = Vt
 
-    # Step 2: apply the gate.
-    # G has codomain (P1, P2), domain (P1, P2) — the convention used by
-    # spin_half_ops(:U1) and id(P ⊗ P).
+    # Step 1+2: form gated two-site block with λL absorbed.
+    @tensor Bi[a, s; m] := λL[a; a′] * Γi[a′, s; m]
+    @tensor B[a, s, t; c] := Bi[a, s; m] * Γj[m, t; c]
+
+    # Step 3: apply the gate.
     @tensor B′[a, s, t; c] := G[s, t; u, v] * B[a, u, v; c]
 
-    # Step 3: SVD with (V_l, P1) | (P2, V_r) cut.
+    # Step 4: SVD with (V_l, P1) | (P2, V_r) cut.
     U, S, Vt, _ = _symmetric_tsvd(B′; maxdim=maxdim, cutoff=cutoff)
 
     if renormalize
@@ -847,19 +860,20 @@ function applygate!(ψ::iMPS{<:AbstractTensorMap, <:DiagonalTensorMap},
         nrm > 0 && (S = S / nrm)
     end
 
-    # Step 4: store results. Package convention: absorb Schmidt values S into
-    # the right tensor Γj so that Γi = U is a left isometry.
-    #
-    # After _symmetric_tsvd:
-    #   U   has codomain (V_l, P1), domain (V_mid) — shape (2,1), ready for ψ.Γ[i].
-    #   Vt  has codomain (V_mid,), domain (P2, V_r) — shape (1,2).
-    #
-    # Storage convention for Γ is (V_l, P) ← V_r — shape (2,1).
-    # Absorb S on the left of Vt to get S·Vt with shape (1,2), then
-    # permute to (2,1) via _vt_to_site_tensor to match the convention.
-    ψ.Γ[i] = U
+    # Step 5: restore canonical storage.
+    #   Γ[i]_new = λL^{-1} · U · S
+    #     λ[i-1]_new = λL (left bond of i is unchanged by the gate)
+    #     So: λ[i-1]_new · Γ[i]_new = λL · λL^{-1} · U · S = U · S = B[i]_new ✓
+    #   Γ[j]_new = Vt  (raw right-isometry, no extra Schmidt absorbed)
+    #     λ[i]_new = S  (the new left bond of j)
+    #     So: λ[i]_new · Γ[j]_new = S · Vt = B[j]_new ✓
+    #     Note: energy_density uses λ[j-1]·Γ[j] = S · Vt, which equals the
+    #     gated right block.  The bond λ[j] (right of j) is NOT updated.
+    UdS = U * S
+    @tensor Γi_new[a, s; m] := λLi[a; a′] * UdS[a′, s; m]
+    ψ.Γ[i] = Γi_new
     ψ.λ[i] = S
-    ψ.Γ[j] = _vt_to_site_tensor(S * Vt)
+    ψ.Γ[j] = _vt_to_site_tensor(Vt)
 
     return ψ
 end
@@ -909,9 +923,12 @@ function expect(ψ::iMPS{<:AbstractTensorMap, <:DiagonalTensorMap},
 
     Γ  = ψ.Γ[i]
     λL = ψ.λ[mod1(i - 1, ψ.n)]
-    # Contraction:
-    #   val = sum_{aa'tb} conj(Γ[a,s,b]) * λL[a; a'] * Γ[a',t,b] * O[s; t]
-    @tensor val = conj(Γ[a, s, b]) * λL[a; a′] * Γ[a′, t, b] * O[s; t]
+    # Contraction: <B_i | O | B_i> where B_i = λL · Γ_i.
+    # The correct formula uses λL^2 (two factors of λL) to give the correct
+    # metric, matching the dense path's `ocontract` which squares the Schmidt
+    # values via `tensor_lmul!(λl, Γ)` applied to both bra and ket.
+    #   val = sum_{aa″sb} conj(Γ[a,s,b]) * (λL^2)[a; a″] * Γ[a″,t,b] * O[s; t]
+    @tensor val = conj(Γ[a, s, b]) * λL[a; a′] * λL[a′; a″] * Γ[a″, t, b] * O[s; t]
     return val
 end
 
@@ -934,14 +951,17 @@ function energy_density(ψ::iMPS{<:AbstractTensorMap, <:DiagonalTensorMap},
         Γi = ψ.Γ[i]
         Γj = ψ.Γ[j]
         λL = ψ.λ[mod1(i - 1, n)]
-        # Two-site expectation:
-        #   val = sum_{...} conj(Γi[a,s,c]) * conj(Γj[c,t,b]) * λL[a;a′] *
-        #                   Γi[a′,u,c′] * Γj[c′,v,b] * h[s,t;u,v]
+        # Two-site expectation value <B_i B_j | h | B_i B_j> where B_i = λL · Γi.
+        # The formula absorbs λL into BOTH bra and ket, matching the dense path's
+        # `ocontract` which calls `tensor_lmul!(λl, Γ)` then computes |Γ_new|²_h.
+        # Using ONE factor of λL (as in the previous version) gives only <λL·Γ|h|Γ>
+        # which is NOT the correct expectation value.
         @tensor val =
             conj(Γi[a, s, c]) *
             conj(Γj[c, t, b]) *
             λL[a; a′] *
-            Γi[a′, u, c′] *
+            λL[a′; a″] *
+            Γi[a″, u, c′] *
             Γj[c′, v, b] *
             h[s, t; u, v]
         total += val
