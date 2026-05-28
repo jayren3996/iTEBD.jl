@@ -29,6 +29,7 @@ const TEST_GROUPS = Dict(
     ],
     "smoke" => [
         "test_docs_smoke.jl",
+        "test_precompile_workload.jl",
     ],
     "bench" => [
         "test_bench_smoke.jl",
