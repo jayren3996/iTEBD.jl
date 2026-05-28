@@ -26,4 +26,21 @@ include("Miscellaneous.jl")
 include("ScarFinder.jl")
 include("SymmetricStubs.jl")
 
+#---------------------------------------------------------------------------------------------------
+# PRECOMPILE WORKLOAD
+#---------------------------------------------------------------------------------------------------
+using PrecompileTools: @setup_workload, @compile_workload
+
+@setup_workload begin
+    X = ComplexF64[0 1; 1 0]
+    G = kron(X, X)
+    @compile_workload begin
+        ψ = product_iMPS(ComplexF64, [[1, 0], [0, 1]])
+        applygate!(ψ, G, 1, 2; maxdim=4)
+        evolve!(ψ, [(G, 1, 2), (G, 2, 1)], 3; maxdim=4)
+        expect(ψ, G, 1, 2)
+        ent_S(ψ, 1)
+    end
+end
+
 end
