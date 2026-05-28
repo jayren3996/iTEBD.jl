@@ -10,7 +10,7 @@ export MAXDIM, SVDTOL, DenseIMPS, expect, ent_S
 #---------------------------------------------------------------------------------------------------
 # INCLUDE
 #---------------------------------------------------------------------------------------------------
-using LinearAlgebra, SparseArrays, TensorOperations, KrylovKit
+using LinearAlgebra, TensorOperations, KrylovKit
 using ITensors, ITensorMPS
 import Base: eltype, getindex, setindex!
 import LinearAlgebra: conj
