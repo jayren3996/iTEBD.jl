@@ -2,7 +2,7 @@
 
 julia_version = "1.12.6"
 manifest_format = "2.0"
-project_hash = "353fbb10f67e08723658cd6a0bf32597397f923e"
+project_hash = "2546ddca45c9bf82c9c670fec4b4ee828803218a"
 
 [[deps.Accessors]]
 deps = ["CompositionsBase", "ConstructionBase", "InverseFunctions", "LinearAlgebra", "MacroTools", "Markdown"]
@@ -804,7 +804,7 @@ uuid = "83775a58-1f1d-513f-b197-d71354ab007a"
 version = "1.3.1+2"
 
 [[deps.iTEBD]]
-deps = ["ITensorMPS", "ITensors", "KrylovKit", "LinearAlgebra", "SparseArrays", "TensorOperations"]
+deps = ["ITensorMPS", "ITensors", "KrylovKit", "LinearAlgebra", "PrecompileTools", "TensorOperations"]
 path = "."
 uuid = "3e658c4a-00a9-4be6-9955-e21302391b0e"
 version = "1.5.0"
