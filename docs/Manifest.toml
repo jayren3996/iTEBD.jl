@@ -1112,7 +1112,7 @@ uuid = "83775a58-1f1d-513f-b197-d71354ab007a"
 version = "1.3.1+2"
 
 [[deps.iTEBD]]
-deps = ["ITensorMPS", "ITensors", "KrylovKit", "LinearAlgebra", "SparseArrays", "TensorOperations"]
+deps = ["ITensorMPS", "ITensors", "KrylovKit", "LinearAlgebra", "PrecompileTools", "TensorOperations"]
 path = "/Users/ren/Library/CloudStorage/OneDrive-UniversityofLeeds/GitHub/iTEBD.jl"
 uuid = "3e658c4a-00a9-4be6-9955-e21302391b0e"
 version = "1.5.0"
