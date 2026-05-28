@@ -1130,4 +1130,22 @@ function energy_density(ψ::iMPS{<:AbstractTensorMap, <:DiagonalTensorMap},
     return real(total / n)
 end
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Precompile workload (symmetric / graded path)
+# ─────────────────────────────────────────────────────────────────────────────
+using PrecompileTools: @setup_workload, @compile_workload
+
+@setup_workload begin
+    @compile_workload begin
+        ψ = product_iMPS(:U1, [-1, 1], [1, -1])
+        P = codomain(ψ.Γ[1])[2]
+        Iop = id(ComplexF64, P ⊗ P)
+        applygate!(ψ, Iop, 1, 2; maxdim=8)
+        evolve!(ψ, [(Iop, 1, 2), (Iop, 2, 1)], 3; maxdim=8)
+        Sz, _, _, _ = spin_half_ops(:U1)
+        expect(ψ, Sz, 1, 1)
+        ent_S(ψ, 1)
+    end
+end
+
 end # module
