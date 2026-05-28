@@ -186,7 +186,7 @@ end
 
     psi = rand_iMPS(ComplexF32, 2, 2, 2)
     canonical!(psi)
-    evolve!(psi, [(G, 1, 2), (G, 2, 1)], 5; maxdim=4)
+    evolve!(psi, [(G, 1, 2), (G, 2, 1)], 5; maxdim=4, recanonicalize=true)
     @test eltype(psi.Γ[1]) === ComplexF32
     @test eltype(psi.λ[1]) === Float32
     @test isapprox(iTEBD.inner_product(psi), 1.0; atol=1f-4)

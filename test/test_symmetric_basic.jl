@@ -604,10 +604,11 @@ end
     ψ = product_iMPS(:U1, [-1, 1], [1, -1])   # Néel product state, bond dim 1
 
     # Apply 20 full Trotter steps (non-wrap then wrap gate each step).
-    # The wrap gate triggers canonical! inside applygate!.
+    # These are non-unitary imaginary-time gates, so pass recanonicalize=true
+    # to restore canonical form after each wrap gate.
     for step in 1:20
-        applygate!(ψ, G, 1, 2; maxdim=4)
-        applygate!(ψ, G, 2, 1; maxdim=4)
+        applygate!(ψ, G, 1, 2; maxdim=4, recanonicalize=true)
+        applygate!(ψ, G, 2, 1; maxdim=4, recanonicalize=true)
     end
 
     # The canonical-form invariant: ψ.Γ[i] should remain a right-isometry,
@@ -664,20 +665,90 @@ end
     @test E_d_after < -0.25   # imaginary-time gate lowers the energy
 end
 
+@testset "dense vs symmetric observables on a non-trivial Schmidt spectrum" begin
+    # Build a state with a meaningfully non-trivial λ on both backends by
+    # imaginary-time evolving the Néel state under Heisenberg for many steps.
+    # Then cross-check both `expect` (one-site) and `energy_density` (two-site)
+    # between dense and symmetric. The earlier "one gate" test only exercises
+    # a bond-dim-2 λ; this one builds a fuller spectrum so the λL contraction
+    # in the symmetric path is exercised on every non-trivial entry.
+    dt = 0.05
+    nsteps = 20
+    maxdim = 8
+
+    # Dense path.
+    Sz_d = ComplexF64[0.5  0; 0 -0.5]
+    Sp_d = ComplexF64[0   1; 0  0]
+    Sm_d = ComplexF64[0   0; 1  0]
+    h_d  = real(kron(Sz_d, Sz_d) + 0.5 * (kron(Sp_d, Sm_d) + kron(Sm_d, Sp_d)))
+    G_d  = exp(-dt * Matrix(h_d))
+    up   = ComplexF64[1, 0]
+    down = ComplexF64[0, 1]
+    ψ_d  = product_iMPS(ComplexF64, [up, down])
+
+    # Symmetric path.
+    ψ_s = product_iMPS(:U1, [-1, 1], [1, -1])
+    Sz_s, SzSz, SpSm, SmSp = spin_half_ops(:U1)
+    h_s = SzSz + 0.5 * (SpSm + SmSp)
+    G_s = exp(-dt * h_s)
+
+    # Imaginary-time gates are non-unitary, so re-canonicalise each wrap gate.
+    for _ in 1:nsteps
+        applygate!(ψ_d, G_d, 1, 2; maxdim=maxdim, recanonicalize=true)
+        applygate!(ψ_d, G_d, 2, 1; maxdim=maxdim, recanonicalize=true)
+        applygate!(ψ_s, G_s, 1, 2; maxdim=maxdim, recanonicalize=true)
+        applygate!(ψ_s, G_s, 2, 1; maxdim=maxdim, recanonicalize=true)
+    end
+
+    # Sanity: the symmetric state has actually grown a non-trivial Schmidt
+    # spectrum (more than one nonzero value). If this fails, the test below
+    # is too easy and not exercising the λL contraction we care about.
+    @test count(>(1e-6), schmidt_values(ψ_s, 1)) ≥ 2
+    @test count(>(1e-6), schmidt_values(ψ_s, 2)) ≥ 2
+
+    # Schmidt-value normalisation on the symmetric side.
+    for i in 1:ψ_s.n
+        @test isapprox(sum(abs2, schmidt_values(ψ_s, i)), 1.0; atol=1e-8)
+    end
+
+    # One-site Sz expectation values agree per site.
+    for i in 1:2
+        e_d = expect(ψ_d, Sz_d, i, i)
+        e_s = expect(ψ_s, Sz_s, i, i)
+        @test isapprox(real(e_d), real(e_s); atol=1e-6)
+    end
+
+    # Two-site energy density agrees.
+    E_d = real(energy_density(ψ_d, h_d))
+    E_s = real(energy_density(ψ_s, h_s))
+    @test isapprox(E_d, E_s; atol=1e-6)
+    # Sanity: imaginary-time evolution drove the energy below the product-state value.
+    @test E_s < -0.4
+end
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Post-review polish tests (blocking fixes #1, #2, important fix #1)
 # ─────────────────────────────────────────────────────────────────────────────
 
-@testset "canonical! throws on non-injective input" begin
+@testset "canonical! handles previously-non-injective seeds" begin
     using Random
-    # Seeds 1, 3, 4, 5, 9 are known to land in the non-injective regime for
-    # this (P, V) configuration (asymmetric left/right transfer eigenvalues).
-    # The v1 canonical! now THROWS rather than silently corrupting the state.
-    Random.seed!(3)
+    # Seeds 1, 3, 4, 5, 9 used to land in the non-injective regime for this
+    # (P, V) configuration (asymmetric left/right transfer eigenvalues) and
+    # made `canonical!` throw. After tightening the dominant-eigenvector
+    # selection in `_dominant_fixed_point` (filter to the top-magnitude tier,
+    # then pick the most PSD member), the routine successfully canonicalises
+    # these inputs and produces a valid right-canonical form.
     P = graded_space(:U1, 1=>1, -1=>1)
     V = graded_space(:U1, 0=>1, 1=>1, -1=>1, 2=>1, -2=>1)
-    ψ = rand_iMPS(P, V, 2)
-    @test_throws ArgumentError canonical!(ψ)
+    for seed in (1, 3, 4, 5, 9)
+        Random.seed!(seed)
+        ψ = rand_iMPS(P, V, 2)
+        canonical!(ψ)
+        # Schmidt² sums to 1 on every bond.
+        for i in 1:ψ.n
+            @test isapprox(sum(abs2, schmidt_values(ψ, i)), 1.0; atol=1e-9)
+        end
+    end
 end
 
 @testset "canonical! honours small cutoff" begin

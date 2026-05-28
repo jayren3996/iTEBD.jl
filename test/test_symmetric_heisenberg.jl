@@ -16,7 +16,7 @@ using Random
     ψ = product_iMPS(:U1, [-1, 1], [1, -1])
     dt = 0.05
     gates = [(exp(-dt * h), 1, 2), (exp(-dt * h), 2, 1)]
-    evolve!(ψ, gates, 400; maxdim=32, cutoff=1e-10)
+    evolve!(ψ, gates, 400; maxdim=32, cutoff=1e-10, recanonicalize=true)
 
     e = energy_density(ψ, h)
     # Bethe-ansatz ground-state energy density of the spin-1/2 Heisenberg chain
@@ -35,7 +35,7 @@ end
     ψd = product_iMPS(ComplexF64, [[0+0im, 1+0im], [1+0im, 0+0im]])
     dt = 0.05
     gates_d = [(exp(-dt * h_d), 1, 2), (exp(-dt * h_d), 2, 1)]
-    evolve!(ψd, gates_d, 400; maxdim=8, cutoff=1e-10)
+    evolve!(ψd, gates_d, 400; maxdim=8, cutoff=1e-10, recanonicalize=true)
     e_dense = energy_density(ψd, h_d)
 
     # Symmetric path: same Hamiltonian via spin_half_ops(:U1)
@@ -43,7 +43,7 @@ end
     h_s = SzSz + 0.5*(SpSm + SmSp)
     ψs = product_iMPS(:U1, [-1, 1], [1, -1])
     gates_s = [(exp(-dt * h_s), 1, 2), (exp(-dt * h_s), 2, 1)]
-    evolve!(ψs, gates_s, 400; maxdim=8, cutoff=1e-10)
+    evolve!(ψs, gates_s, 400; maxdim=8, cutoff=1e-10, recanonicalize=true)
     e_sym = energy_density(ψs, h_s)
 
     @test isapprox(real(e_dense), real(e_sym); atol=1e-4)

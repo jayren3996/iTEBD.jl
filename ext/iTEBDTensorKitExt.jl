@@ -80,7 +80,6 @@ graded_space(sym::Symbol, args...) = graded_space(Val(sym), args...)
 # `Base.get_extension(iTEBD, :iTEBDTensorKitExt).SymmetricIMPS` from user code,
 # and unqualified as `SymmetricIMPS` inside the extension's own methods.
 const SymmetricIMPS = iMPS{<:AbstractTensorMap, <:DiagonalTensorMap}
-export SymmetricIMPS
 
 """
     spin_half_ops(symmetry::Symbol)
@@ -447,7 +446,9 @@ end
 # corresponds to an indefinite eigenvector and is NOT the physical fixed
 # point. We therefore request the top few Krylov vectors and pick the one
 # whose blockwise spectrum is closest to PSD.
-function _dominant_fixed_point(ψ::iMPS; dir::Symbol, tol::Real, maxiter::Integer)
+function _dominant_fixed_point(ψ::iMPS; dir::Symbol,
+                                tol::Real, maxiter::Integer,
+                                noconverge::Symbol=:error)
     n = ψ.n
     Vbond = if dir === :r
         # Right fixed point lives on the right virtual leg of Γ[n].
@@ -463,17 +464,35 @@ function _dominant_fixed_point(ψ::iMPS; dir::Symbol, tol::Real, maxiter::Intege
     howmany = min(4, dim(Vbond))
     vals, vecs, info = eigsolve(matvec, ρ0, howmany, :LM;
                                 tol=tol, maxiter=maxiter, ishermitian=false)
-    info.converged ≥ 1 || @warn "Transfer map fixed-point eigsolve did not " *
-        "converge (dir=$dir); proceeding with the leading Ritz vector" info
+    if info.converged < 1
+        msg = "canonical!: transfer-map eigsolve did not converge " *
+              "(dir=$dir, normres=$(info.normres)). The canonical form " *
+              "would be built on an unconverged Ritz vector."
+        if noconverge === :error
+            throw(ErrorException(msg * " Pass `noconverge=:warn` to proceed " *
+                                  "anyway, or raise `tol`/`maxiter` on " *
+                                  "`canonical!`."))
+        elseif noconverge === :warn
+            @warn msg info
+        elseif noconverge !== :ignore
+            throw(ArgumentError(
+                "noconverge=$(repr(noconverge)); use :error, :warn, or :ignore"))
+        end
+    end
 
-    # Identify the eigenvector closest to PSD: hermitianise each, compute the
-    # negative spectral weight (sum of negative eigenvalues per block), and
-    # take the one minimising that weight. The "right" eigenvector then has
-    # mostly non-negative eigenvalues (numerical noise aside).
-    best_idx = 1
+    # Restrict to the top tier of eigenvalues — those within tolerance of the
+    # leading magnitude — then pick the most PSD among them. Picking from the
+    # full returned set would let a sub-dominant Ritz vector that happens to
+    # be more PSD set `λ_max`, under-scaling the per-site rescale at the call
+    # site.
+    λ_top = abs(vals[1])
+    tier_tol = sqrt(eps(Float64)) * max(λ_top, 1.0)
+    tier = [k for k in eachindex(vecs) if abs(abs(vals[k]) - λ_top) ≤ tier_tol]
+
+    best_idx = first(tier)
     best_neg = Inf
     best_ρ   = nothing
-    for k in eachindex(vecs)
+    for k in tier
         ρ_h = (vecs[k] + vecs[k]') / 2
         # Flip the global sign if the trace is negative — this is a free
         # gauge choice and gives the "positive face" of the candidate.
@@ -591,20 +610,30 @@ non-injective / multi-block canonical form.
 Keyword arguments:
 - `maxdim::Integer = MAXDIM` — Hard rank cap on each bond.
 - `cutoff::Real = SVDTOL`    — Discard singular values below this threshold.
-- `renormalize::Bool = true` — Rescale every bond so `sum(Λ²) = 1`.
+- `renormalize::Bool = true` — Rescale every bond so `sum(Λ²) = 1`. With
+  `renormalize=false`, the wraparound Schmidt `Λ` retains its natural scale
+  from `M = X · Y`, but each `Γ` has already been divided by
+  `λ_max^(1/(2n))` so the global state is rescaled by `λ_max^{-1/2}`
+  relative to the input. If you need to preserve the input norm exactly,
+  capture `inner_product(ψ)` before calling `canonical!`.
 - `tol::Real = 1e-12`        — Convergence tolerance for `eigsolve`.
 - `maxiter::Integer = 200`   — Maximum Krylov restarts for `eigsolve`.
+- `noconverge::Symbol = :error` — How to react if the transfer-map
+  eigsolve fails to converge: `:error` raises (default), `:warn` emits
+  a warning and proceeds with the leading Ritz vector, `:ignore`
+  proceeds silently.
 """
 function canonical!(ψ::iMPS{<:AbstractTensorMap, <:DiagonalTensorMap};
                     maxdim::Integer=iTEBD.MAXDIM,
                     cutoff::Real=iTEBD.SVDTOL,
                     renormalize::Bool=true,
                     tol::Real=1e-12,
-                    maxiter::Integer=200)
+                    maxiter::Integer=200,
+                    noconverge::Symbol=:error)
     n = ψ.n
     # 1. Dominant right and left fixed points of the unit-cell transfer map.
-    λ_r, R = _dominant_fixed_point(ψ; dir=:r, tol=tol, maxiter=maxiter)
-    λ_l, L = _dominant_fixed_point(ψ; dir=:l, tol=tol, maxiter=maxiter)
+    λ_r, R = _dominant_fixed_point(ψ; dir=:r, tol=tol, maxiter=maxiter, noconverge=noconverge)
+    λ_l, L = _dominant_fixed_point(ψ; dir=:l, tol=tol, maxiter=maxiter, noconverge=noconverge)
 
     # The dominant transfer eigenvalue should match in both directions for an
     # injective state (up to numerical noise). Take the average for a more
@@ -902,9 +931,10 @@ either), and `return_stats=true` is rejected because no stats are
 collected. Unknown kwargs raise `MethodError`.
 
 For wrap-around gates (gate spans the seam between site n and site 1), the
-state is automatically re-canonicalised after the gate to prevent
-canonical-form drift across many evolution steps. This matches the dense
-`applygate!` behavior.
+default `recanonicalize=false` skips re-canonicalisation — appropriate for
+unitary real-time evolution, where the SVD chain preserves canonical form.
+For non-unitary (imaginary-time) evolution, pass `recanonicalize=true` so the
+state is re-canonicalised after each wrap gate and observables stay accurate.
 """
 function applygate!(ψ::iMPS{<:AbstractTensorMap, <:DiagonalTensorMap},
                     G::AbstractTensorMap, i::Integer, j::Integer;
@@ -914,6 +944,7 @@ function applygate!(ψ::iMPS{<:AbstractTensorMap, <:DiagonalTensorMap},
                     cutoff::Union{Nothing,Real}=nothing,
                     svd_min::Union{Nothing,Real}=nothing,
                     renormalize::Bool=true,
+                    recanonicalize::Bool=false,
                     return_stats::Bool=false)
     # The dense path returns `(ψ, stats)` when `return_stats=true`; the
     # symmetric path does not yet collect truncation diagnostics, so the
@@ -994,18 +1025,14 @@ function applygate!(ψ::iMPS{<:AbstractTensorMap, <:DiagonalTensorMap},
     ψ.λ[i] = S
     ψ.Γ[j] = _vt_to_site_tensor(Vt)
 
-    # Wrap-around gates (j < i in 1-based unit-cell coordinates, i.e. the gate
-    # spans the seam between site n and site 1) leave the left transfer-matrix
-    # fixed point inconsistent at the seam: the SVD restores canonicality
-    # *locally* at sites i and j but not at the bonds elsewhere in the cell.
-    # Mirror the dense applygate! at src/Gate.jl (search for "j0 < i0") and
-    # re-canonicalise the cell.
-    # Guard: only re-canonicalise if all bond spaces are non-empty (dim > 0).
-    # A hard truncation can leave an empty sector in S, making the bond-space
-    # identity vector zero-normed and causing eigsolve to fail. In that case
-    # the state is effectively rank-0 on that sector and canonical! would be
-    # a no-op anyway.
-    if j < i && all(k -> dim(domain(ψ.Γ[k])[1]) > 0, 1:ψ.n)
+    # Wrap-around gates: for non-unitary gates (imaginary-time evolution) the
+    # SVD chain restores canonical form locally at sites i,j but the seam to
+    # the rest of the cell drifts. Re-canonicalise unless the user opts out
+    # (only safe for pure unitary evolution).
+    # Guard: skip re-canonicalisation if any bond space has become empty
+    # (hard truncation can leave a sector with dim 0, making the identity
+    # vector zero-normed and breaking eigsolve).
+    if recanonicalize && j < i && all(k -> dim(domain(ψ.Γ[k])[1]) > 0, 1:ψ.n)
         canonical!(ψ; maxdim=maxdim, cutoff=effective_cutoff, renormalize=renormalize)
     end
 

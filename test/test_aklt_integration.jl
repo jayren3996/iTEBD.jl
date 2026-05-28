@@ -27,7 +27,7 @@ end
     aklt = iMPS([AKLT_TENSOR, AKLT_TENSOR])
     psi = rand_iMPS(ComplexF64, 2, 3, 1)
 
-    evolve!(psi, [(G, 1, 2), (G, 2, 1)], AKLT_STEPS; maxdim=rdim, truncerr=1e-10)
+    evolve!(psi, [(G, 1, 2), (G, 2, 1)], AKLT_STEPS; maxdim=rdim, truncerr=1e-10, recanonicalize=true)
     canonical!(psi; maxdim=rdim)
 
     @test iTEBD.inner_product(psi, aklt) > 1 - 1e-6
@@ -42,7 +42,7 @@ end
     aklt = iMPS([AKLT_TENSOR, AKLT_TENSOR, AKLT_TENSOR])
     psi = rand_iMPS(ComplexF64, 3, 3, 1)
 
-    evolve!(psi, [(G, 1, 2), (G, 2, 3), (G, 3, 1)], AKLT_STEPS; maxdim=rdim, truncerr=1e-10)
+    evolve!(psi, [(G, 1, 2), (G, 2, 3), (G, 3, 1)], AKLT_STEPS; maxdim=rdim, truncerr=1e-10, recanonicalize=true)
     canonical!(psi; maxdim=rdim)
 
     @test iTEBD.inner_product(psi, aklt) > 1 - 1e-6

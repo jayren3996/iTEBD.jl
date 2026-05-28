@@ -469,7 +469,15 @@ function _discarded_weight_choice(
     maxdim_i = Int(maxdim)
     truncerr_f = Float64(truncerr)
     svd_min_f = Float64(svd_min)
-    target_slack = sqrt(eps(Float64))
+    # Absorb only floating-point roundoff in the cumulative-sum comparison, not
+    # a generous "discard small modes" budget. The previous `sqrt(eps)` slack
+    # silently dropped physical modes whose cumulative weight was below ~1.5e-8,
+    # which then broke the right-canonical condition on the leftmost SVD output
+    # once the gate-block left Schmidt λl was divided out. With strict-eps slack
+    # and `truncerr=0`, only modes below `svd_min` are dropped — preserving
+    # canonical form across unitary gates exactly as the textbook iTEBD
+    # algorithm guarantees.
+    target_slack = eps(Float64)
 
     n = length(s)
     n == 0 && return (

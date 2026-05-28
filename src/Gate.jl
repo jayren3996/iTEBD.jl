@@ -83,7 +83,7 @@ end
 #---------------------------------------------------------------------------------------------------
 export applygate!
 """
-    applygate!(ψ, G, i, j; maxdim=MAXDIM, mindim=1, truncerr=0.0, svd_min=SVDTOL, renormalize=true, return_stats=false)
+    applygate!(ψ, G, i, j; maxdim=MAXDIM, mindim=1, truncerr=0.0, svd_min=SVDTOL, renormalize=true, recanonicalize=false, return_stats=false)
 
 Apply a local gate `G` in place to the contiguous region from site `i` to site
 `j` of the periodic unit cell.
@@ -113,6 +113,18 @@ Keyword arguments:
   target is evaluated.
 - `renormalize=true`
   Whether to renormalize the retained Schmidt values.
+- `recanonicalize=false`
+  After a wrap-around gate (`j < i`), whether to re-canonicalise the unit
+  cell. The SVD chain inside `tensor_applygate!` keeps the affected block
+  right-canonical locally, and for unitary gates with no truncation it
+  preserves the global canonical form exactly — so the default `false`
+  skips the O(χ⁶) `canonical!` call, which is the right choice for real-time
+  unitary evolution. For non-unitary gates (e.g. imaginary-time
+  `exp(-dt·h)`), or whenever truncation discards weight, the wraparound seam
+  drifts from canonical form; pass `recanonicalize=true` so observables and
+  downstream truncations stay accurate. Note: over long unitary evolutions
+  the Vidal-gauge division by small Schmidt values accumulates drift too, so
+  re-canonicalise periodically if you need high accuracy.
 - `return_stats=false`
   If `true`, also return per-bond truncation diagnostics for this gate update.
 
@@ -144,6 +156,7 @@ function applygate!(
     svd_min::Union{Nothing,Real}=nothing,
     cutoff::Union{Nothing,Real}=nothing,
     renormalize::Bool=true,
+    recanonicalize::Bool=false,
     return_stats::Bool=false
 )
     svd_floor = _resolve_svd_min(svd_min, cutoff)
@@ -202,13 +215,13 @@ function applygate!(
         ψ.Γ[inds[k]] = Γs[k]
         ψ.λ[inds[k]] = λs[k]
     end
-    # Wrap-around gates (j0 < i0) update the block but leave the left
-    # transfer-matrix fixed point inconsistent at the wraparound seam: the
-    # local SVD inside tensor_applygate! makes the new tensors right-canonical
-    # within the block, but the global canonical form is not restored. A
-    # repro on a 4-site cell shows right_canonical_error jumping from ~1e-14
-    # to ~1e-3 after a single wrap gate. Re-canonicalize the cell.
-    if j0 < i0
+    # Wrap-around gates (j0 < i0) update the block in place but leave the
+    # wraparound seam non-canonical *unless* the gate is unitary AND no
+    # truncation occurred. The default `recanonicalize=false` keeps the fast
+    # path for unitary evolution; callers doing imaginary-time evolution (or
+    # who otherwise need a canonical state every step) opt in with
+    # `recanonicalize=true`.
+    if recanonicalize && j0 < i0
         canonical!(ψ; maxdim, cutoff=svd_floor, renormalize)
     end
     return_stats && return ψ, _gate_update_stats(i0, j0, bond_stats)
@@ -486,6 +499,7 @@ function _evolve_gate_sequence!(
     svd_min::Union{Nothing,Real}=nothing,
     cutoff::Union{Nothing,Real}=nothing,
     renormalize::Bool=true,
+    recanonicalize::Bool=false,
     return_stats::Bool=false,
     chi_policy::Symbol=:fixed,
     q::Real=1.0,
@@ -508,11 +522,12 @@ function _evolve_gate_sequence!(
                 truncerr,
                 svd_min=svd_floor,
                 renormalize,
+                recanonicalize,
                 return_stats=true,
             )
             push!(gate_updates, stats)
         else
-            applygate!(ψ, G, i, j; maxdim, mindim, truncerr, svd_min=svd_floor, renormalize)
+            applygate!(ψ, G, i, j; maxdim, mindim, truncerr, svd_min=svd_floor, renormalize, recanonicalize)
         end
 
         if chi_policy === :adaptive
@@ -627,6 +642,12 @@ Keyword arguments:
   target is evaluated.
 - `renormalize=true`
   Whether to renormalize Schmidt values after decomposition.
+- `recanonicalize=false`
+  Whether to re-canonicalise the unit cell after each wrap-around gate. The
+  default `false` is the fast path for unitary real-time evolution. For
+  imaginary-time evolution to a ground state, pass `recanonicalize=true` so
+  every step truncates in the canonical basis and the final observables are
+  accurate.
 - `return_stats=false`
   If `true`, also return aggregated truncation diagnostics for the full
   evolution.
@@ -664,6 +685,7 @@ function evolve!(
     q::Real=1.0,
     alpha::Real=0.1,
     renormalize::Bool=true,
+    recanonicalize::Bool=false,
     return_stats::Bool=false
 )
     svd_floor = _resolve_svd_min(svd_min, cutoff)
@@ -683,6 +705,7 @@ function evolve!(
             q,
             alpha,
             renormalize,
+            recanonicalize,
             return_stats,
         )
         return_stats && append!(gate_updates, updates)
@@ -720,8 +743,10 @@ Keyword arguments:
 - `evolution=:real`
   Use `:real` for real-time gates `exp(-1im * c * dt * h)` or `:imaginary` for
   second-order imaginary-time gates `exp(-c * dt * h)`.
-- `maxdim`, `mindim`, `truncerr`, `svd_min`, `renormalize`, `return_stats`
-  Match the gate-list [`evolve!`](@ref) interface.
+- `maxdim`, `mindim`, `truncerr`, `svd_min`, `renormalize`, `recanonicalize`, `return_stats`
+  Match the gate-list [`evolve!`](@ref) interface. In particular,
+  `recanonicalize=false` by default — pass `recanonicalize=true` for
+  imaginary-time evolution.
 
 Returns:
 - The same object `ψ`, mutated in place.
@@ -757,6 +782,7 @@ function evolve!(
     q::Real=1.0,
     alpha::Real=0.1,
     renormalize::Bool=true,
+    recanonicalize::Bool=false,
     return_stats::Bool=false
 )
     svd_floor = _resolve_svd_min(svd_min, cutoff)
@@ -779,6 +805,7 @@ function evolve!(
         q,
         alpha,
         renormalize,
+        recanonicalize,
         return_stats,
     )
     return_stats ? (ψ, _aggregate_evolution_stats(updates)) : ψ
