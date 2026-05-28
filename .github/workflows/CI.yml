@@ -19,7 +19,7 @@ jobs:
       fail-fast: false
       matrix:
         version:
-          - '1.9'   # lower bound from [compat] julia
+          - '1.10'  # lower bound from [compat] julia
           - '1'     # current stable
         os:
           - ubuntu-latest

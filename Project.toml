@@ -24,7 +24,7 @@ KrylovKit = "0.8, 0.9"
 PrecompileTools = "1"
 TensorKit = "0.16"
 TensorOperations = "5"
-julia = "1.9"
+julia = "1.10"
 
 [extras]
 Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
