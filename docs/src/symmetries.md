@@ -13,8 +13,9 @@ TensorKit.**
 
 For the spin-1/2 XXZ chain, total `Sz` is conserved. If you tell `iTEBD.jl`
 this, every internal tensor splits into independent blocks labelled by `Sz`,
-and roughly `1/√χ` of the data stops being stored. The numerical answer is
-unchanged; the runtime and memory both shrink.
+so at a fixed bond dimension `χ` only about `1/√χ` of the dense data still
+needs to be stored — a memory saving that grows like `√χ`. The numerical
+answer is unchanged; the runtime and memory both shrink.
 
 ## Sectors, charges, graded spaces
 
@@ -76,11 +77,48 @@ individual single-site `S+` and `S-` are not returned because composing
 them naively (`S+ ⊗ S-` as a four-leg operator) requires extra "sided
 operator" machinery that lives outside the v1 helper layer.
 
-If you want to dig into how TensorKit represents flux internally — the
-codomain/domain split, dual spaces, arrows on diagrams — see the
-[TensorKit manual](https://quantumkithub.github.io/TensorKit.jl/stable/man/sectors/).
 For most users of this package, "operators have a flux; flux-0 things
-compose and add cleanly" is all you need to know.
+compose and add cleanly" is all you need to know. The next section shows how
+the same bookkeeping applies to the MPS tensors themselves.
+
+## How charge flows through a site, and the wraparound bond
+
+Each MPS tensor `Γ[n]` has three legs: a **left bond**, a **physical** leg,
+and a **right bond**. They are laid out so that charge flowing *in* through
+the left bond and the physical leg must balance the charge flowing *out*
+through the right bond:
+
+```text
+              │ physical   (charge +1 or −1 for spin-1/2)
+              │
+    left ─────●───── right
+    bond              bond
+```
+
+For a flux-0 tensor that balance is exact at every site:
+
+```text
+    charge(left bond) + charge(physical) = charge(right bond)
+```
+
+so the bond charge simply accumulates the physical charges as you walk along
+the chain. In the `Sz=0` Néel cell `product_iMPS(:U1, [-1, 1], [1, -1])` the
+bond charge runs `0 → +1 → 0`: site 1 puts `+1` on its physical leg and
+raises the bond to `+1`, site 2 puts `−1` and brings it back to `0`.
+
+**Closing around the unit cell.** The lattice is infinite, so the right bond
+of the last site is glued to the left bond of the first. Those two graded
+spaces must be *identical* — the same charges with the same per-charge
+dimensions, not merely equal in total dimension. Equivalently, the physical
+charges around one unit cell must sum to the flux you intend (`0` for a
+fixed-`Sz` state). When they do not, construction fails with
+`fluxes must close around the unit cell` (see Common errors below). Choosing
+the bond spaces so the running charge returns to its starting value is what
+"build the wraparound space explicitly" means.
+
+If you want to dig into the underlying formalism — the codomain/domain split,
+dual spaces, and the arrow diagrams TensorKit uses to track all of this — see
+the [TensorKit manual](https://quantumkithub.github.io/TensorKit.jl/stable/man/sectors/).
 
 ## End-to-end walkthrough: spin-1/2 XXZ in the Sz=0 sector
 
@@ -121,10 +159,12 @@ schmidt_values(ψ, 1)
   `Γ[1]`. In practice this happens when the running flux around the unit
   cell does not return to zero. Either set every tensor's flux to 0, or
   build the wraparound space explicitly.
-- `MethodError: no method matching ...` from a `graded_space` call without
-  loading TensorKit — you need `using TensorKit` to pull in the symmetric
-  extension.
-- `Argument N must be ≥ 2` in `graded_space(:ZN, N, …)` — Z_1 is trivial;
+- *"This entry point requires the TensorKit backend. Run `using TensorKit`
+  …"* from a `graded_space`, `spin_half_ops`, or symmetric
+  `rand_iMPS`/`product_iMPS` call — the symmetric API lives in a package
+  extension that loads only once TensorKit is imported. Run `using TensorKit`
+  (or add it to your project) and retry.
+- `graded_space(:ZN, N, …) requires N ≥ 2 (got 1)` — Z_1 is trivial;
   use `:Trivial` instead.
 - `ArgumentError: canonical!: asymmetric transfer eigenvalues (λ_r=..., λ_l=...)` —
   your state is in a non-injective regime that the v1 symmetric `canonical!`
