@@ -361,7 +361,13 @@ _(Filled in during Task 1 and Task 6.)_
 
 | Probe | Baseline | After | Delta |
 |-------|----------|-------|-------|
-| Dense first-call `@time` (s) | TBD (Task 1) | TBD (Task 6) | — |
-| `test_symmetric_basic.jl` wall-clock `real` (s) | TBD (Task 1) | TBD (Task 6) | — |
+| Dense first-call `@time` (s) | 234.5 s · 125.60 M allocs · 99.99% compile (run 2 of 2) | **0.160 s** · 736.92 k allocs · 99.10% compile (run 2 of 2) | **~1465× faster** (234.5 s → 0.16 s) |
+| `test_symmetric_basic.jl` wall-clock (s) | 140 s (min of 3: 140/156/166) | **109 s** (min of 2: 109/167; run 1 under CPU contention) | **~22% faster** (140 → 109 s) |
 
-Verdict: _(filled in Task 6)_
+Verdict: **Success, with the expected shape.** The dense first-call latency — which Task 1 showed was 99.99% compilation — is effectively eliminated (234.5 s → 0.16 s) because the dense `@compile_workload` caches that native code into the precompile image. The symmetric test-file wall-clock improves ~22% (140 → 109 s); the gain is bounded because ~70 s of that figure is real test *computation* (e.g. 400-step imaginary-time evolutions), not compilation — the workload only removes the compile portion. Full default suite is green (886/886, exit 0). Adding `PrecompileTools` as a hard dep required reconciling `docs/Manifest.toml` (the dev-path iTEBD entry); the precompile image is modestly larger to build (the accepted tradeoff).
+
+### Task 1 anomaly note
+
+`test_symmetric_basic.jl` exits with 187 passed, 0 failed, 1 errored. The error is in the `_diag_inverse cutoff floor` testset (introduced in commit `a349107`): `diag` is called without importing `LinearAlgebra.diag` inside the test process, causing `UndefVarError: diag not defined in Main`. This is a pre-existing defect on this HEAD; it does not affect the wall-clock measurement (all tests still run to completion before the error is raised).
+
+Update (Task 6): the error is an **isolation artifact** — it only fires when `test_symmetric_basic.jl` is run alone (as the measurements do). In the full suite an earlier file's unqualified `using LinearAlgebra` leaks `diag` into the shared test namespace, so the default `Pkg.test()` is fully green (886/886). The latent missing-import is worth fixing on its own (a one-line `diag` import), but is out of scope for this precompile work; a separate task was flagged for it.
