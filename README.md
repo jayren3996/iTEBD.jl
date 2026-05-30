@@ -20,6 +20,9 @@
 
 The package stays narrow on purpose. It does not implement finite-size DMRG or mixed boundary conditions, and it assumes the injective setting throughout canonicalization. Optional Abelian-symmetric tensors (`:U1`, `:Z2`, …) are supported via a TensorKit-backed extension loaded with `using TensorKit`. If you need finite-size DMRG, [`ITensors.jl`](https://github.com/ITensor/ITensors.jl) is a better starting point.
 
+> [!NOTE]
+> The official Julia package will be [`InfiniteTEBD`](https://github.com/jayren3996/InfiniteTEBD.jl). `iTEBD` will keep working, and in the future it will simply be renamed to `InfiniteTEBD.jl`.
+
 ## Installation
 
 From a Julia REPL:
