@@ -1,7 +1,9 @@
 # iTEBD.jl
 
-`iTEBD.jl` is now a compatibility wrapper around
-[`InfiniteTEBD.jl`](https://github.com/jayren3996/InfiniteTEBD.jl).
+`iTEBD.jl` is now just a compatibility wrapper around
+[`InfiniteTEBD.jl`](https://github.com/jayren3996/InfiniteTEBD.jl). It contains
+no implementation code of its own; all algorithms, documentation, examples, and
+future development live in `InfiniteTEBD.jl`.
 
 The old implementation has moved into the registered `InfiniteTEBD` package.
 This repository keeps the historical package name working for code that still
@@ -46,5 +48,5 @@ inner_product(psi)
 iTEBD.tensor_decomp! === InfiniteTEBD.tensor_decomp!
 ```
 
-Documentation, examples, benchmarks, and future development live in
-[`InfiniteTEBD.jl`](https://github.com/jayren3996/InfiniteTEBD.jl).
+See [`InfiniteTEBD.jl`](https://github.com/jayren3996/InfiniteTEBD.jl) for the
+core package, documentation, examples, benchmarks, and future development.
