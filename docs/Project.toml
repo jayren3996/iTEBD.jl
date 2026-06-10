@@ -1,9 +1,0 @@
-[deps]
-Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
-TensorKit = "07d1fe3e-3e46-537d-9eac-e9e13d0d4cec"
-iTEBD = "3e658c4a-00a9-4be6-9955-e21302391b0e"
-LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
-
-[compat]
-Documenter = "1"
-TensorKit = "0.16"
