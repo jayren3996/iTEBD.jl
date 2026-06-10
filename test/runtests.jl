@@ -4,6 +4,7 @@ using InfiniteTEBD
 
 @testset "iTEBD shell wrapper" begin
     @test iTEBD.InfiniteTEBD === InfiniteTEBD
+    @test !iTEBD._reexports_name(Symbol("#eval"))
 
     for name in names(InfiniteTEBD; all=false, imported=false)
         @test name in names(iTEBD; all=false, imported=false)
